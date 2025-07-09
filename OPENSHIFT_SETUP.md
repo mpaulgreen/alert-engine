@@ -1471,8 +1471,10 @@ oc get pods -n openshift-logging -l app.kubernetes.io/component=collector,app.ku
 # Alternative: Check all collector pods (both logging and kafka-alert-forwarder)
 oc get pods -n openshift-logging -l app.kubernetes.io/component=collector
 
-# Verify logs are being forwarded to Kafka
-oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5
+# Verify logs are being forwarded to Kafka (with timeout to avoid hanging)
+timeout 30 oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5
+
+# If this command hangs or times out, check the troubleshooting section below
 ```
 
 ## 4. Network Policies and Security
@@ -1638,7 +1640,38 @@ After completing this infrastructure setup:
 
 ### Common Issues
 
-1. **Missing OperatorGroup (Most Common Issue)**: If subscription exists but no CSV/InstallPlan is created:
+1. **Kafka Consumer Hangs/Times Out**: If the verification command hangs or shows timeout errors:
+
+   **Check Kafka Cluster Status:**
+   ```bash
+   # Check if all Kafka brokers are running
+   oc get pods -n amq-streams-kafka -l strimzi.io/cluster=alert-kafka-cluster,strimzi.io/kind=Kafka
+   
+   # Check for scheduling issues
+   oc get events -n amq-streams-kafka --field-selector involvedObject.kind=Pod
+   ```
+
+   **Common Solutions:**
+   
+   **Option A: Scale down to 2 brokers (Recommended for resource-constrained clusters):**
+   ```bash
+   oc patch kafka alert-kafka-cluster -n amq-streams-kafka --type='merge' -p='{"spec":{"kafka":{"replicas":2}}}'
+   oc wait kafka/alert-kafka-cluster --for=condition=Ready --timeout=300s -n amq-streams-kafka
+   ```
+
+   **Option B: Reduce CPU requirements:**
+   ```bash
+   oc patch kafka alert-kafka-cluster -n amq-streams-kafka --type='merge' -p='{"spec":{"kafka":{"resources":{"requests":{"cpu":"500m","memory":"1Gi"},"limits":{"cpu":"1","memory":"2Gi"}}}}}'
+   oc wait kafka/alert-kafka-cluster --for=condition=Ready --timeout=300s -n amq-streams-kafka
+   ```
+
+   **Check ClusterLogForwarder logs:**
+   ```bash
+   # Check if collector pods are having connectivity issues
+   oc logs -l app.kubernetes.io/instance=kafka-alert-forwarder -n openshift-logging | grep -i error
+   ```
+
+2. **Missing OperatorGroup (Most Common Issue)**: If subscription exists but no CSV/InstallPlan is created:
    ```bash
    # Check if OperatorGroup exists
    oc get operatorgroup -n amq-streams-kafka
