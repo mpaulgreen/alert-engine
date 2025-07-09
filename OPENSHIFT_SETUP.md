@@ -352,7 +352,7 @@ metadata:
   namespace: amq-streams-kafka
 spec:
   kafka:
-    version: 3.7.0
+    version: 3.9.0
     replicas: 3
     listeners:
       - name: plain
@@ -375,8 +375,8 @@ spec:
       transaction.state.log.min.isr: 2
       default.replication.factor: 3
       min.insync.replicas: 2
-      inter.broker.protocol.version: "3.7"
-      log.message.format.version: "3.7"
+      inter.broker.protocol.version: "3.9"
+      log.message.format.version: "3.9"
       auto.create.topics.enable: "false"
     storage:
       type: persistent-claim
@@ -477,6 +477,43 @@ oc wait kafka/alert-kafka-cluster --for=condition=Ready --timeout=300s -n amq-st
 # Check topics
 oc get kafkatopic -n amq-streams-kafka
 ```
+
+**Expected Output when successful:**
+```bash
+# Kafka cluster should show Ready condition
+NAME                  DESIRED KAFKA REPLICAS   DESIRED ZK REPLICAS   READY   WARNINGS
+alert-kafka-cluster   3                        3                     True    
+
+# Pods should be running
+NAME                                                     READY   STATUS    RESTARTS   AGE
+alert-kafka-cluster-kafka-0                             1/1     Running   0          5m
+alert-kafka-cluster-kafka-1                             1/1     Running   0          5m
+alert-kafka-cluster-kafka-2                             1/1     Running   0          5m
+alert-kafka-cluster-zookeeper-0                         1/1     Running   0          6m
+alert-kafka-cluster-zookeeper-1                         1/1     Running   0          6m
+alert-kafka-cluster-zookeeper-2                         1/1     Running   0          6m
+alert-kafka-cluster-entity-operator-xxxxxxxxx-xxxxx     3/3     Running   0          4m
+```
+
+**Common Issue: Version Compatibility**
+
+If the Kafka cluster shows `NotReady` status, check for version errors:
+
+```bash
+# Check Kafka cluster conditions
+oc get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
+
+# Check operator logs for version errors
+oc logs deployment/amq-streams-cluster-operator-v2.9.1-0 -n amq-streams-kafka | grep -i "version\|error"
+```
+
+**Error Example:**
+```
+UnsupportedKafkaVersionException: Unsupported Kafka.spec.kafka.version: 3.7.0. 
+Supported versions are: [3.8.0, 3.9.0]
+```
+
+**Solution:** Update the Kafka version in your cluster specification to a supported version (3.9.0 recommended).
 
 ## 2. Redis Setup using Redis Enterprise Operator
 
@@ -1088,10 +1125,19 @@ After completing this infrastructure setup:
    oc get subscriptions.messaging.knative.dev -A 2>/dev/null || echo 'No knative subscriptions found'
    ```
 
-4. **Kafka not ready**: Check storage class and resource limits
-5. **Redis connection issues**: Verify SCC and network policies
-6. **Log forwarding not working**: Check vector collector pods in openshift-logging namespace
-7. **Permission denied**: Ensure proper RBAC and SCC configurations
+4. **Kafka Version Compatibility**: If Kafka cluster shows NotReady status:
+   ```bash
+   # Check for version errors in operator logs
+   oc logs deployment/amq-streams-cluster-operator-v2.9.1-0 -n amq-streams-kafka | grep -i "version\|error"
+   
+   # Expected error: UnsupportedKafkaVersionException
+   # Solution: Update Kafka spec to use supported version (3.9.0 or 3.8.0)
+   ```
+
+5. **Kafka not ready**: Check storage class and resource limits
+6. **Redis connection issues**: Verify SCC and network policies
+7. **Log forwarding not working**: Check vector collector pods in openshift-logging namespace
+8. **Permission denied**: Ensure proper RBAC and SCC configurations
 
 ### Useful Commands
 
