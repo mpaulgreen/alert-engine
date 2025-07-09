@@ -54,9 +54,9 @@ EOF
 
 ### Step 1.2: Validate AMQ Streams Operator Installation
 
-After installing the operator, it's crucial to validate that it's properly installed before proceeding. Follow these comprehensive validation steps:
+After installing the operator, it's crucial to validate that it's properly installed before proceeding. **Important**: You may encounter common issues that require troubleshooting - this section includes real-world solutions.
 
-#### Check the Subscription Status
+#### Step 1.2.1: Check the Subscription Status
 
 ```bash
 # Check the Subscription status (use full API resource to avoid conflicts)
@@ -72,7 +72,55 @@ NAME          PACKAGE       SOURCE             CHANNEL
 amq-streams   amq-streams   redhat-operators   stable
 ```
 
-#### Check the ClusterServiceVersion (CSV)
+#### Step 1.2.2: Check for OperatorGroup (Critical Step)
+
+**Common Issue**: If the operator subscription exists but no CSV is created, check for OperatorGroup:
+
+```bash
+# Check if OperatorGroup exists (required for operator installation)
+oc get operatorgroup -n amq-streams-kafka
+```
+
+**If you see "No resources found"**, you need to create an OperatorGroup:
+
+```bash
+# Create required OperatorGroup
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: amq-streams-og
+  namespace: amq-streams-kafka
+spec:
+  targetNamespaces:
+  - amq-streams-kafka
+EOF
+```
+
+**Expected Output:**
+```
+operatorgroup.operators.coreos.com/amq-streams-og created
+```
+
+#### Step 1.2.3: Check the InstallPlan (After OperatorGroup)
+
+Wait a few moments after creating the OperatorGroup, then check:
+
+```bash
+# Check install plan
+oc get installplan -n amq-streams-kafka
+
+# Check install plan across all namespaces if not found
+oc get installplan -A | grep amq-streams
+```
+
+**Expected Output:**
+```
+NAME            CSV                            APPROVAL    APPROVED
+install-nnqn7   amqstreams.v2.9.1-0           Automatic   true
+```
+
+#### Step 1.2.4: Check the ClusterServiceVersion (CSV)
 
 The CSV represents the actual operator installation:
 
@@ -80,37 +128,21 @@ The CSV represents the actual operator installation:
 # Check CSV status
 oc get csv -n amq-streams-kafka
 
-# Get detailed CSV information
-oc get csv -n amq-streams-kafka -o wide
+# Look specifically for AMQ Streams
+oc get csv -n amq-streams-kafka | grep amq
 ```
 
 **Expected Output:**
 ```
-NAME                              DISPLAY                         VERSION   REPLACES   PHASE
-amqstreams.v2.7.0-0               AMQ Streams                     2.7.0-0              Succeeded
+NAME                              DISPLAY                         VERSION   REPLACES                           PHASE
+amqstreams.v2.9.1-0               Streams for Apache Kafka        2.9.1-0   amqstreams.v2.8.0-0-0.1738265624.p  Succeeded
 ```
 
 **Key Status to Look For:**
 - `PHASE` should be `Succeeded`
-- `DISPLAY` should show "AMQ Streams"
+- `DISPLAY` should show "Streams for Apache Kafka"
 
-#### Check the InstallPlan
-
-```bash
-# Check install plan
-oc get installplan -n amq-streams-kafka
-
-# Get detailed install plan
-oc describe installplan -n amq-streams-kafka
-```
-
-**Expected Output:**
-```
-NAME            CSV                            APPROVAL    APPROVED
-install-xxxxx   amqstreams.v2.7.0-0           Manual      true
-```
-
-#### Verify Operator Pod is Running
+#### Step 1.2.5: Verify Operator Pod is Running
 
 ```bash
 # Check operator pods
@@ -122,8 +154,8 @@ oc get deployment -n amq-streams-kafka
 
 **Expected Output:**
 ```
-NAME                                          READY   STATUS    RESTARTS   AGE
-strimzi-cluster-operator-xxxxxxxxx-xxxxx     1/1     Running   0          2m
+NAME                                                     READY   STATUS    RESTARTS   AGE
+amq-streams-cluster-operator-v2.9.1-0-5f8bc76fb8-6p2bl   1/1     Running   0          2m
 ```
 
 #### Check Operator Logs
@@ -162,7 +194,7 @@ kafkausers.kafka.strimzi.io
 strimzipodsets.core.strimzi.io
 ```
 
-#### Complete Validation Script
+#### Step 1.2.6: Complete Validation Script
 
 Run this comprehensive validation script:
 
@@ -173,23 +205,23 @@ echo "=== AMQ Streams Operator Validation ==="
 echo ""
 
 echo "1. Checking Subscription..."
-oc get subscription amq-streams -n amq-streams-kafka
+oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka
 echo ""
 
-echo "2. Checking ClusterServiceVersion..."
-oc get csv -n amq-streams-kafka
+echo "2. Checking OperatorGroup..."
+oc get operatorgroup -n amq-streams-kafka
 echo ""
 
 echo "3. Checking InstallPlan..."
 oc get installplan -n amq-streams-kafka
 echo ""
 
-echo "4. Checking Operator Pods..."
-oc get pods -n amq-streams-kafka
+echo "4. Checking ClusterServiceVersion..."
+oc get csv -n amq-streams-kafka | grep amq
 echo ""
 
-echo "5. Checking Operator Deployment..."
-oc get deployment -n amq-streams-kafka
+echo "5. Checking Operator Pods..."
+oc get pods -n amq-streams-kafka
 echo ""
 
 echo "6. Checking CRDs..."
@@ -197,59 +229,115 @@ echo "Kafka CRDs:"
 oc get crd | grep kafka | head -5
 echo ""
 
-echo "7. Checking Operator Status..."
+echo "7. Final Validation..."
 if oc get csv -n amq-streams-kafka --no-headers | grep -q "Succeeded"; then
     echo "✅ AMQ Streams Operator is successfully installed!"
+    echo "Operator Version: $(oc get csv -n amq-streams-kafka -o jsonpath='{.items[?(@.metadata.name=="amqstreams.v2.9.1-0")].spec.version}' 2>/dev/null || echo 'Check manually')"
 else
     echo "❌ AMQ Streams Operator installation failed or in progress"
+    echo "Troubleshooting required - check OperatorGroup and InstallPlan status"
 fi
-
-echo ""
-echo "8. Operator Version Info..."
-oc get csv -n amq-streams-kafka -o jsonpath='{.items[0].spec.version}'
 echo ""
 ```
 
-#### Troubleshooting Common Issues
+#### Step 1.2.7: Troubleshooting Common Issues
 
-If the operator is not installed successfully, check these:
+Based on real-world experience, here are the most common issues and their solutions:
 
-**Check for OperatorHub Availability:**
+**Issue 1: Missing OperatorGroup (Most Common)**
+
+**Symptoms:**
+- Subscription exists but no CSV is created
+- No InstallPlan appears
+- No operator pods running
+
+**Diagnosis:**
 ```bash
-# Verify OperatorHub is available
-oc get catalogsource -n openshift-marketplace | grep redhat-operators
+# Check if OperatorGroup exists
+oc get operatorgroup -n amq-streams-kafka
 ```
 
-**Check Namespace Labels:**
+**Solution:**
 ```bash
-# Ensure namespace allows operator installation
-oc get namespace amq-streams-kafka --show-labels
+# Create the missing OperatorGroup
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: amq-streams-og
+  namespace: amq-streams-kafka
+spec:
+  targetNamespaces:
+  - amq-streams-kafka
+EOF
 ```
 
-**Check for Installation Errors:**
-```bash
-# Check events for installation issues
-oc get events -n amq-streams-kafka --sort-by='.lastTimestamp'
+**Issue 2: API Resource Conflicts**
 
-# Check subscription conditions
-oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
+**Symptoms:**
+- Error: `subscriptions.messaging.knative.dev "amq-streams" not found`
+
+**Solution:**
+```bash
+# Always use full API resource path
+oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka
+# NOT: oc get subscription amq-streams -n amq-streams-kafka
 ```
 
-**Manual Approval (if needed):**
+**Issue 3: Install Plan Not Progressing**
+
+**Diagnosis:**
 ```bash
-# If install plan needs manual approval
+# Check install plan details
+oc get installplan -n amq-streams-kafka -o yaml
+oc describe installplan -n amq-streams-kafka
+```
+
+**Solution:**
+```bash
+# If manual approval needed
 oc patch installplan <install-plan-name> -n amq-streams-kafka --type merge --patch '{"spec":{"approved":true}}'
 ```
 
-#### Quick One-Liner Validation
+**Issue 4: General Debugging**
 
-For a quick check, you can use this one-liner:
+```bash
+# Check OperatorHub availability
+oc get catalogsource -n openshift-marketplace | grep redhat-operators
+
+# Check subscription conditions
+oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
+
+# Check events
+oc get events -n amq-streams-kafka --sort-by='.lastTimestamp'
+
+# Check package availability
+oc get packagemanifest amq-streams -n openshift-marketplace
+```
+
+#### Step 1.2.8: Quick One-Liner Validation
+
+For a quick final check, you can use this one-liner:
 
 ```bash
 oc get csv -n amq-streams-kafka --no-headers | grep -q "Succeeded" && echo "✅ AMQ Streams Operator Ready" || echo "❌ Installation Failed/In Progress"
 ```
 
-**⚠️ Important**: Only proceed to the next step after confirming the operator is successfully installed with `Phase: Succeeded`.
+**Expected Output when successful:**
+```
+✅ AMQ Streams Operator Ready
+```
+
+**Complete validation in one command:**
+```bash
+# Full validation check
+echo "Operator Status:" && oc get csv -n amq-streams-kafka | grep amq && echo "Pod Status:" && oc get pods -n amq-streams-kafka
+```
+
+**⚠️ Important**: Only proceed to the next step after confirming:
+- CSV shows `Phase: Succeeded`
+- Operator pod is `Running`
+- All CRDs are installed
 
 ### Step 1.3: Deploy Kafka Cluster
 
@@ -961,7 +1049,25 @@ After completing this infrastructure setup:
 
 ### Common Issues
 
-1. **Subscription API Conflicts**: If you get `subscriptions.messaging.knative.dev` error, use the full API resource:
+1. **Missing OperatorGroup (Most Common Issue)**: If subscription exists but no CSV/InstallPlan is created:
+   ```bash
+   # Check if OperatorGroup exists
+   oc get operatorgroup -n amq-streams-kafka
+   
+   # If missing, create it
+   cat <<EOF | oc apply -f -
+   apiVersion: operators.coreos.com/v1
+   kind: OperatorGroup
+   metadata:
+     name: amq-streams-og
+     namespace: amq-streams-kafka
+   spec:
+     targetNamespaces:
+     - amq-streams-kafka
+   EOF
+   ```
+
+2. **Subscription API Conflicts**: If you get `subscriptions.messaging.knative.dev` error, use the full API resource:
    ```bash
    # Wrong (may cause conflicts)
    oc get subscription amq-streams -n amq-streams-kafka
@@ -970,7 +1076,7 @@ After completing this infrastructure setup:
    oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka
    ```
 
-2. **Debugging API Resource Conflicts**:
+3. **Debugging API Resource Conflicts**:
    ```bash
    # Check all subscription resources available
    oc api-resources | grep subscription
@@ -982,10 +1088,10 @@ After completing this infrastructure setup:
    oc get subscriptions.messaging.knative.dev -A 2>/dev/null || echo 'No knative subscriptions found'
    ```
 
-3. **Kafka not ready**: Check storage class and resource limits
-4. **Redis connection issues**: Verify SCC and network policies
-5. **Log forwarding not working**: Check vector collector pods in openshift-logging namespace
-6. **Permission denied**: Ensure proper RBAC and SCC configurations
+4. **Kafka not ready**: Check storage class and resource limits
+5. **Redis connection issues**: Verify SCC and network policies
+6. **Log forwarding not working**: Check vector collector pods in openshift-logging namespace
+7. **Permission denied**: Ensure proper RBAC and SCC configurations
 
 ### Useful Commands
 
