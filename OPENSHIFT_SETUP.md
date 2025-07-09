@@ -52,7 +52,206 @@ spec:
 EOF
 ```
 
-### Step 1.2: Deploy Kafka Cluster
+### Step 1.2: Validate AMQ Streams Operator Installation
+
+After installing the operator, it's crucial to validate that it's properly installed before proceeding. Follow these comprehensive validation steps:
+
+#### Check the Subscription Status
+
+```bash
+# Check the Subscription status
+oc get subscription amq-streams -n amq-streams-kafka -o yaml
+
+# Quick status check
+oc get subscription amq-streams -n amq-streams-kafka
+```
+
+**Expected Output:**
+```
+NAME          PACKAGE       SOURCE             CHANNEL
+amq-streams   amq-streams   redhat-operators   stable
+```
+
+#### Check the ClusterServiceVersion (CSV)
+
+The CSV represents the actual operator installation:
+
+```bash
+# Check CSV status
+oc get csv -n amq-streams-kafka
+
+# Get detailed CSV information
+oc get csv -n amq-streams-kafka -o wide
+```
+
+**Expected Output:**
+```
+NAME                              DISPLAY                         VERSION   REPLACES   PHASE
+amqstreams.v2.7.0-0               AMQ Streams                     2.7.0-0              Succeeded
+```
+
+**Key Status to Look For:**
+- `PHASE` should be `Succeeded`
+- `DISPLAY` should show "AMQ Streams"
+
+#### Check the InstallPlan
+
+```bash
+# Check install plan
+oc get installplan -n amq-streams-kafka
+
+# Get detailed install plan
+oc describe installplan -n amq-streams-kafka
+```
+
+**Expected Output:**
+```
+NAME            CSV                            APPROVAL    APPROVED
+install-xxxxx   amqstreams.v2.7.0-0           Manual      true
+```
+
+#### Verify Operator Pod is Running
+
+```bash
+# Check operator pods
+oc get pods -n amq-streams-kafka
+
+# Check operator deployment
+oc get deployment -n amq-streams-kafka
+```
+
+**Expected Output:**
+```
+NAME                                          READY   STATUS    RESTARTS   AGE
+strimzi-cluster-operator-xxxxxxxxx-xxxxx     1/1     Running   0          2m
+```
+
+#### Check Operator Logs
+
+```bash
+# Check operator logs for any issues
+oc logs deployment/strimzi-cluster-operator -n amq-streams-kafka
+
+# Follow logs in real-time
+oc logs -f deployment/strimzi-cluster-operator -n amq-streams-kafka
+```
+
+#### Verify CRDs are Installed
+
+The AMQ Streams operator should install several Custom Resource Definitions:
+
+```bash
+# Check for Kafka CRDs
+oc get crd | grep kafka
+
+# Check for Strimzi CRDs  
+oc get crd | grep strimzi.io
+```
+
+**Expected CRDs:**
+```
+kafkabridges.kafka.strimzi.io
+kafkaconnectors.kafka.strimzi.io
+kafkaconnects.kafka.strimzi.io
+kafkamirrormaker2s.kafka.strimzi.io
+kafkamirrormakers.kafka.strimzi.io
+kafkarebalances.kafka.strimzi.io
+kafkas.kafka.strimzi.io
+kafkatopics.kafka.strimzi.io
+kafkausers.kafka.strimzi.io
+strimzipodsets.core.strimzi.io
+```
+
+#### Complete Validation Script
+
+Run this comprehensive validation script:
+
+```bash
+#!/bin/bash
+
+echo "=== AMQ Streams Operator Validation ==="
+echo ""
+
+echo "1. Checking Subscription..."
+oc get subscription amq-streams -n amq-streams-kafka
+echo ""
+
+echo "2. Checking ClusterServiceVersion..."
+oc get csv -n amq-streams-kafka
+echo ""
+
+echo "3. Checking InstallPlan..."
+oc get installplan -n amq-streams-kafka
+echo ""
+
+echo "4. Checking Operator Pods..."
+oc get pods -n amq-streams-kafka
+echo ""
+
+echo "5. Checking Operator Deployment..."
+oc get deployment -n amq-streams-kafka
+echo ""
+
+echo "6. Checking CRDs..."
+echo "Kafka CRDs:"
+oc get crd | grep kafka | head -5
+echo ""
+
+echo "7. Checking Operator Status..."
+if oc get csv -n amq-streams-kafka --no-headers | grep -q "Succeeded"; then
+    echo "✅ AMQ Streams Operator is successfully installed!"
+else
+    echo "❌ AMQ Streams Operator installation failed or in progress"
+fi
+
+echo ""
+echo "8. Operator Version Info..."
+oc get csv -n amq-streams-kafka -o jsonpath='{.items[0].spec.version}'
+echo ""
+```
+
+#### Troubleshooting Common Issues
+
+If the operator is not installed successfully, check these:
+
+**Check for OperatorHub Availability:**
+```bash
+# Verify OperatorHub is available
+oc get catalogsource -n openshift-marketplace | grep redhat-operators
+```
+
+**Check Namespace Labels:**
+```bash
+# Ensure namespace allows operator installation
+oc get namespace amq-streams-kafka --show-labels
+```
+
+**Check for Installation Errors:**
+```bash
+# Check events for installation issues
+oc get events -n amq-streams-kafka --sort-by='.lastTimestamp'
+
+# Check subscription conditions
+oc get subscription amq-streams -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
+```
+
+**Manual Approval (if needed):**
+```bash
+# If install plan needs manual approval
+oc patch installplan <install-plan-name> -n amq-streams-kafka --type merge --patch '{"spec":{"approved":true}}'
+```
+
+#### Quick One-Liner Validation
+
+For a quick check, you can use this one-liner:
+
+```bash
+oc get csv -n amq-streams-kafka --no-headers | grep -q "Succeeded" && echo "✅ AMQ Streams Operator Ready" || echo "❌ Installation Failed/In Progress"
+```
+
+**⚠️ Important**: Only proceed to the next step after confirming the operator is successfully installed with `Phase: Succeeded`.
+
+### Step 1.3: Deploy Kafka Cluster
 
 Create a production-ready Kafka cluster:
 
@@ -137,7 +336,7 @@ spec:
 EOF
 ```
 
-### Step 1.3: Create Kafka Topics
+### Step 1.4: Create Kafka Topics
 
 Create the required topics for the Alert Engine:
 
@@ -175,7 +374,7 @@ spec:
 EOF
 ```
 
-### Step 1.4: Verify Kafka Installation
+### Step 1.5: Verify Kafka Installation
 
 ```bash
 # Check Kafka cluster status
@@ -225,7 +424,85 @@ spec:
 EOF
 ```
 
-### Step 2.2: Create Security Context Constraints
+### Step 2.2: Validate Redis Enterprise Operator Installation
+
+After installing the Redis Enterprise operator, validate the installation:
+
+#### Check the Subscription Status
+
+```bash
+# Check the Subscription status
+oc get subscription redis-enterprise-operator -n redis-enterprise
+
+# Get detailed subscription info
+oc get subscription redis-enterprise-operator -n redis-enterprise -o yaml
+```
+
+#### Check the ClusterServiceVersion (CSV)
+
+```bash
+# Check CSV status
+oc get csv -n redis-enterprise
+
+# Get detailed CSV information
+oc get csv -n redis-enterprise -o wide
+```
+
+**Expected Output:**
+```
+NAME                                    DISPLAY                       VERSION   REPLACES   PHASE
+redis-enterprise-operator.v6.x.x       Redis Enterprise Operator     6.x.x                Succeeded
+```
+
+#### Verify Operator Pod is Running
+
+```bash
+# Check operator pods
+oc get pods -n redis-enterprise
+
+# Check operator deployment
+oc get deployment -n redis-enterprise
+```
+
+**Expected Output:**
+```
+NAME                                       READY   STATUS    RESTARTS   AGE
+redis-enterprise-operator-xxxxxxxxx-xxxxx   1/1     Running   0          2m
+```
+
+#### Check Operator Logs
+
+```bash
+# Check operator logs for any issues
+oc logs deployment/redis-enterprise-operator -n redis-enterprise
+
+# Follow logs in real-time
+oc logs -f deployment/redis-enterprise-operator -n redis-enterprise
+```
+
+#### Verify CRDs are Installed
+
+```bash
+# Check for Redis Enterprise CRDs
+oc get crd | grep redis
+```
+
+**Expected CRDs:**
+```
+redisenterpriseclusters.app.redislabs.com
+redisenterprisedatabases.app.redislabs.com
+```
+
+#### Quick Validation
+
+```bash
+# One-liner validation
+oc get csv -n redis-enterprise --no-headers | grep -q "Succeeded" && echo "✅ Redis Enterprise Operator Ready" || echo "❌ Installation Failed/In Progress"
+```
+
+**⚠️ Important**: Only proceed to the next step after confirming the operator is successfully installed with `Phase: Succeeded`.
+
+### Step 2.3: Create Security Context Constraints
 
 ```yaml
 cat <<EOF | oc apply -f -
@@ -267,7 +544,7 @@ EOF
 oc adm policy add-scc-to-user redis-enterprise-scc -z redis-enterprise-operator -n redis-enterprise
 ```
 
-### Step 2.3: Deploy Redis Enterprise Cluster
+### Step 2.4: Deploy Redis Enterprise Cluster
 
 ```yaml
 cat <<EOF | oc apply -f -
@@ -299,7 +576,7 @@ spec:
 EOF
 ```
 
-### Step 2.4: Create Redis Database
+### Step 2.5: Create Redis Database
 
 ```yaml
 cat <<EOF | oc apply -f -
@@ -323,7 +600,7 @@ spec:
 EOF
 ```
 
-### Step 2.5: Verify Redis Installation
+### Step 2.6: Verify Redis Installation
 
 ```bash
 # Check Redis cluster status
@@ -362,7 +639,82 @@ spec:
 EOF
 ```
 
-### Step 3.2: Create ClusterLogging Instance
+### Step 3.2: Validate OpenShift Logging Operator Installation
+
+After installing the logging operator, validate the installation:
+
+#### Check the Subscription Status
+
+```bash
+# Check the Subscription status
+oc get subscription cluster-logging -n openshift-logging
+
+# Get detailed subscription info
+oc get subscription cluster-logging -n openshift-logging -o yaml
+```
+
+#### Check the ClusterServiceVersion (CSV)
+
+```bash
+# Check CSV status
+oc get csv -n openshift-logging
+
+# Get detailed CSV information
+oc get csv -n openshift-logging -o wide
+```
+
+**Expected Output:**
+```
+NAME                                    DISPLAY                       VERSION   REPLACES   PHASE
+cluster-logging.v5.x.x                 Red Hat OpenShift Logging     5.x.x                Succeeded
+```
+
+#### Verify Operator Pod is Running
+
+```bash
+# Check operator pods
+oc get pods -n openshift-logging
+
+# Check operator deployment
+oc get deployment -n openshift-logging
+```
+
+**Expected Output:**
+```
+NAME                                       READY   STATUS    RESTARTS   AGE
+cluster-logging-operator-xxxxxxxxx-xxxxx    1/1     Running   0          2m
+```
+
+#### Check Operator Logs
+
+```bash
+# Check operator logs for any issues
+oc logs deployment/cluster-logging-operator -n openshift-logging
+```
+
+#### Verify CRDs are Installed
+
+```bash
+# Check for logging CRDs
+oc get crd | grep logging
+```
+
+**Expected CRDs:**
+```
+clusterlogforwarders.logging.coreos.com
+clusterloggings.logging.coreos.com
+```
+
+#### Quick Validation
+
+```bash
+# One-liner validation
+oc get csv -n openshift-logging --no-headers | grep -q "Succeeded" && echo "✅ OpenShift Logging Operator Ready" || echo "❌ Installation Failed/In Progress"
+```
+
+**⚠️ Important**: Only proceed to the next step after confirming the operator is successfully installed with `Phase: Succeeded`.
+
+### Step 3.3: Create ClusterLogging Instance
 
 ```yaml
 cat <<EOF | oc apply -f -
@@ -384,7 +736,7 @@ spec:
 EOF
 ```
 
-### Step 3.3: Create ClusterLogForwarder
+### Step 3.4: Create ClusterLogForwarder
 
 ```yaml
 cat <<EOF | oc apply -f -
@@ -433,7 +785,7 @@ spec:
 EOF
 ```
 
-### Step 3.4: Verify Log Forwarding
+### Step 3.5: Verify Log Forwarding
 
 ```bash
 # Check ClusterLogForwarder status
