@@ -194,53 +194,8 @@ kafkausers.kafka.strimzi.io
 strimzipodsets.core.strimzi.io
 ```
 
-#### Step 1.2.6: Complete Validation Script
 
-Run this comprehensive validation script:
-
-```bash
-#!/bin/bash
-
-echo "=== AMQ Streams Operator Validation ==="
-echo ""
-
-echo "1. Checking Subscription..."
-oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka
-echo ""
-
-echo "2. Checking OperatorGroup..."
-oc get operatorgroup -n amq-streams-kafka
-echo ""
-
-echo "3. Checking InstallPlan..."
-oc get installplan -n amq-streams-kafka
-echo ""
-
-echo "4. Checking ClusterServiceVersion..."
-oc get csv -n amq-streams-kafka | grep amq
-echo ""
-
-echo "5. Checking Operator Pods..."
-oc get pods -n amq-streams-kafka
-echo ""
-
-echo "6. Checking CRDs..."
-echo "Kafka CRDs:"
-oc get crd | grep kafka | head -5
-echo ""
-
-echo "7. Final Validation..."
-if oc get csv -n amq-streams-kafka --no-headers | grep -q "Succeeded"; then
-    echo "✅ AMQ Streams Operator is successfully installed!"
-    echo "Operator Version: $(oc get csv -n amq-streams-kafka -o jsonpath='{.items[?(@.metadata.name=="amqstreams.v2.9.1-0")].spec.version}' 2>/dev/null || echo 'Check manually')"
-else
-    echo "❌ AMQ Streams Operator installation failed or in progress"
-    echo "Troubleshooting required - check OperatorGroup and InstallPlan status"
-fi
-echo ""
-```
-
-#### Step 1.2.7: Troubleshooting Common Issues
+#### Step 1.2.6: Troubleshooting Common Issues
 
 Based on real-world experience, here are the most common issues and their solutions:
 
@@ -315,7 +270,7 @@ oc get events -n amq-streams-kafka --sort-by='.lastTimestamp'
 oc get packagemanifest amq-streams -n openshift-marketplace
 ```
 
-#### Step 1.2.8: Quick One-Liner Validation
+#### Step 1.2.7: Quick One-Liner Validation
 
 For a quick final check, you can use this one-liner:
 
@@ -1263,23 +1218,7 @@ echo "Password: $(oc get secret redb-alert-engine-cache -n redis-enterprise -o j
 oc run redis-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h rec-alert-engine.redis-enterprise.svc.cluster.local -p $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}') -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d)
 ```
 
-#### Step 2.6.2: Test Redis Modules
-
-```bash
-# Test ReJSON module
-oc run redis-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h rec-alert-engine.redis-enterprise.svc.cluster.local -p $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}') -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d) JSON.SET test $ '{"message":"Hello Redis Enterprise!"}'
-
-# Test RedisTimeSeries module
-oc run redis-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h rec-alert-engine.redis-enterprise.svc.cluster.local -p $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}') -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d) TS.CREATE test-metric
-```
-
-**Expected Output:**
-```
-OK
-OK
-```
-
-#### Step 2.6.3: Create ConfigMap for Application
+#### Step 2.6.2: Create ConfigMap for Application
 
 Create a ConfigMap with Redis connection details for your applications:
 
@@ -1373,7 +1312,7 @@ OK
 OK
 ```
 
-#### Step 2.6.4: Complete Redis Enterprise Setup Summary
+#### Step 2.6.3: Complete Redis Enterprise Setup Summary
 
 **✅ Redis Enterprise Setup Complete**
 
