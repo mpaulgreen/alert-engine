@@ -433,21 +433,6 @@ cat <<EOF | oc apply -f -
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
-  name: openshift-logs
-  namespace: amq-streams-kafka
-  labels:
-    strimzi.io/cluster: alert-kafka-cluster
-spec:
-  partitions: 6
-  replicas: 3
-  config:
-    retention.ms: 604800000  # 7 days
-    segment.bytes: 1073741824  # 1GB
-    cleanup.policy: delete
----
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaTopic
-metadata:
   name: application-logs
   namespace: amq-streams-kafka
   labels:
@@ -1449,29 +1434,16 @@ metadata:
   name: kafka-alert-forwarder
   namespace: openshift-logging
 spec:
+  serviceAccount:
+    name: collector
   outputs:
-  - name: kafka-openshift-logs
-    type: kafka
-    url: tcp://alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092
-    kafka:
-      topic: openshift-logs
-      brokers:
-      - alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092
   - name: kafka-application-logs
     type: kafka
-    url: tcp://alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092
     kafka:
       topic: application-logs
       brokers:
       - alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092
   pipelines:
-  - name: forward-openshift-logs
-    inputRefs:
-    - infrastructure
-    - audit
-    outputRefs:
-    - kafka-openshift-logs
-    filterRefs: []
   - name: forward-application-logs
     inputRefs:
     - application
@@ -1481,7 +1453,11 @@ spec:
 EOF
 ```
 
-**Note:** This ClusterLogForwarder is separate from the existing "logging" forwarder that sends logs to LokiStack. Both can coexist, allowing logs to be sent to both destinations.
+**Key Configuration Details:**
+- **serviceAccount: collector** - Required field that uses the existing logging collector service account
+- **No `url` field** - For kafka outputs, only `brokers` array is needed under the `kafka` section
+- **Application logs only** - Focuses on `application` input (pod logs) which is what you need for application monitoring, not infrastructure/audit logs
+- **Separate from existing forwarder** - This ClusterLogForwarder is separate from the existing "logging" forwarder that sends logs to LokiStack. Both can coexist, allowing logs to be sent to both destinations.
 
 ### Step 3.2: Verify Log Forwarding
 
@@ -1493,7 +1469,7 @@ oc get clusterlogforwarder kafka-alert-forwarder -n openshift-logging -o yaml
 oc get pods -n openshift-logging -l component=collector
 
 # Verify logs are being forwarded to Kafka
-oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic openshift-logs --from-beginning --max-messages 5
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5
 ```
 
 ## 4. Network Policies and Security
