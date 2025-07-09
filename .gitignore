@@ -1,0 +1,92 @@
+# Go binaries and build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+server
+alert-engine
+cmd/server/server
+bin/
+build/
+
+# Go test files
+*.test
+*.out
+
+# Go modules
+go.work
+go.work.sum
+vendor/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Environment and secrets
+.env
+.env.local
+.env.development
+.env.production
+config.local.yaml
+secrets.yaml
+
+# Local development configs
+local-*.yaml
+*-secret.yaml
+
+# Runtime files
+*.pid
+
+# Coverage reports
+coverage.out
+coverage.html
+coverage.txt
+*.cover
+
+# Benchmark and profiling files
+*.bench
+*.prof
+*.pprof
+*.mem
+*.cpu
+
+# Test artifacts and temporary test files
+test-results/
+testdata/tmp/
+.test-cache/
+
+# Air live reload (if used)
+.air.toml
+
+# Delve debugger
+__debug_bin
+
+# Local certificates
+*.pem
+*.key
+*.crt
+
+# Redis dump (if running locally)
+dump.rdb 
+
+#ide files
+.idea

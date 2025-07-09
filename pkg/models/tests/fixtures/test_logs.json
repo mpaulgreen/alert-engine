@@ -1,0 +1,160 @@
+{
+  "log_entries": [
+    {
+      "timestamp": "2024-01-15T10:30:45.123Z",
+      "level": "ERROR",
+      "message": "Database connection failed: timeout after 30s",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "user-service-7b6f9c8d4-xyz12",
+        "container": "user-service",
+        "labels": {
+          "app": "user-service",
+          "version": "1.2.3",
+          "environment": "production",
+          "team": "backend"
+        }
+      },
+      "host": "worker-node-01",
+      "raw": "{\"timestamp\":\"2024-01-15T10:30:45.123Z\",\"level\":\"ERROR\",\"message\":\"Database connection failed: timeout after 30s\"}"
+    },
+    {
+      "timestamp": "2024-01-15T10:31:00.456Z",
+      "level": "INFO",
+      "message": "Service started successfully",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "user-service-7b6f9c8d4-xyz12",
+        "container": "user-service",
+        "labels": {
+          "app": "user-service",
+          "version": "1.2.3",
+          "environment": "production",
+          "team": "backend"
+        }
+      },
+      "host": "worker-node-01"
+    },
+    {
+      "timestamp": "2024-01-15T11:15:30.789Z",
+      "level": "WARN",
+      "message": "Authentication failed for user: invalid token",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "auth-service-5c6b7d8e9-abc34",
+        "container": "auth-service",
+        "labels": {
+          "app": "auth-service",
+          "version": "2.1.0",
+          "environment": "production",
+          "team": "security"
+        }
+      },
+      "host": "worker-node-02",
+      "raw": "{\"timestamp\":\"2024-01-15T11:15:30.789Z\",\"level\":\"WARN\",\"message\":\"Authentication failed for user: invalid token\"}"
+    },
+    {
+      "timestamp": "2024-01-15T12:00:00.000Z",
+      "level": "DEBUG",
+      "message": "Processing request for user ID: 12345",
+      "kubernetes": {
+        "namespace": "staging",
+        "pod": "api-service-1a2b3c4d5-efg67",
+        "container": "api-service",
+        "labels": {
+          "app": "api-service",
+          "version": "1.0.0",
+          "environment": "staging",
+          "team": "frontend"
+        }
+      },
+      "host": "worker-node-03"
+    },
+    {
+      "timestamp": "2024-01-15T12:30:15.999Z",
+      "level": "FATAL",
+      "message": "Critical system failure: unable to recover",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "core-service-9x8y7z6w5-uvt43",
+        "container": "core-service",
+        "labels": {
+          "app": "core-service",
+          "version": "3.0.0",
+          "environment": "production",
+          "team": "platform"
+        }
+      },
+      "host": "worker-node-04",
+      "raw": "{\"timestamp\":\"2024-01-15T12:30:15.999Z\",\"level\":\"FATAL\",\"message\":\"Critical system failure: unable to recover\"}"
+    }
+  ],
+  "log_filters": [
+    {
+      "namespace": "production",
+      "service": "user-service",
+      "log_level": "ERROR",
+      "start_time": "2024-01-15T10:00:00Z",
+      "end_time": "2024-01-15T11:00:00Z",
+      "keywords": ["database", "connection", "timeout"],
+      "limit": 100
+    },
+    {
+      "namespace": "production",
+      "log_level": "WARN",
+      "start_time": "2024-01-15T11:00:00Z",
+      "end_time": "2024-01-15T12:00:00Z",
+      "keywords": ["authentication", "failed"],
+      "limit": 50
+    },
+    {
+      "log_level": "FATAL",
+      "start_time": "2024-01-15T00:00:00Z",
+      "end_time": "2024-01-15T23:59:59Z",
+      "limit": 10
+    }
+  ],
+  "log_stats": [
+    {
+      "total_logs": 1500,
+      "logs_by_level": {
+        "DEBUG": 600,
+        "INFO": 700,
+        "WARN": 150,
+        "ERROR": 45,
+        "FATAL": 5
+      },
+      "logs_by_service": {
+        "user-service": 500,
+        "auth-service": 300,
+        "api-service": 400,
+        "core-service": 200,
+        "payment-service": 100
+      },
+      "last_updated": "2024-01-15T12:30:00Z"
+    },
+    {
+      "total_logs": 0,
+      "logs_by_level": {},
+      "logs_by_service": {},
+      "last_updated": "2024-01-15T00:00:00Z"
+    }
+  ],
+  "time_windows": [
+    {
+      "start": "2024-01-15T10:00:00Z",
+      "end": "2024-01-15T11:00:00Z",
+      "count": 245
+    },
+    {
+      "start": "2024-01-15T11:00:00Z",
+      "end": "2024-01-15T12:00:00Z",
+      "count": 189
+    },
+    {
+      "start": "2024-01-15T12:00:00Z",
+      "end": "2024-01-15T13:00:00Z",
+      "count": 156
+    }
+  ]
+} 

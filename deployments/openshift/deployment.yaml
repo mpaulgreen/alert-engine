@@ -1,0 +1,291 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-engine
+  namespace: log-monitoring
+  labels:
+    app: alert-engine
+    component: alerting
+    version: v1.0.0
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: alert-engine
+  template:
+    metadata:
+      labels:
+        app: alert-engine
+        component: alerting
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: alert-engine
+      containers:
+      - name: alert-engine
+        image: quay.io/log-monitoring/alert-engine:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8081
+          protocol: TCP
+        env:
+        - name: SERVER_ADDRESS
+          value: ":8080"
+        - name: REDIS_ADDRESS
+          value: "redis:6379"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: password
+              optional: true
+        - name: KAFKA_BROKERS
+          value: "amq-streams-cluster-kafka-bootstrap.log-monitoring.svc.cluster.local:9092"
+        - name: KAFKA_TOPIC
+          value: "application-logs"
+        - name: SLACK_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: slack-secret
+              key: webhook-url
+        - name: LOG_LEVEL
+          value: "info"
+        - name: GOMAXPROCS
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.cpu
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: config
+          mountPath: /app/configs
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 1001
+          seccompProfile:
+            type: RuntimeDefault
+      volumes:
+      - name: config
+        configMap:
+          name: alert-engine-config
+      - name: tmp
+        emptyDir: {}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alert-engine
+  namespace: log-monitoring
+  labels:
+    app: alert-engine
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: alert-engine
+  namespace: log-monitoring
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alert-engine
+  namespace: log-monitoring
+subjects:
+- kind: ServiceAccount
+  name: alert-engine
+  namespace: log-monitoring
+roleRef:
+  kind: Role
+  name: alert-engine
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-engine-config
+  namespace: log-monitoring
+  labels:
+    app: alert-engine
+data:
+  config.yaml: |
+    server:
+      address: ":8080"
+      read_timeout: "30s"
+      write_timeout: "30s"
+      idle_timeout: "60s"
+
+    redis:
+      address: "redis:6379"
+      password: ""
+      database: 0
+      max_retries: 3
+
+    kafka:
+      brokers:
+        - "amq-streams-cluster-kafka-bootstrap.log-monitoring.svc.cluster.local:9092"
+      topic: "application-logs"
+      group_id: "log-monitoring-group"
+
+    slack:
+      channel: "#alerts"
+      username: "Alert Engine"
+      icon_emoji: ":warning:"
+
+    notifications:
+      enabled: true
+      max_retries: 3
+      retry_delay: "5s"
+
+    alerting:
+      enabled: true
+      batch_size: 100
+      flush_interval: "5s"
+      max_rules: 1000
+
+    logging:
+      level: "info"
+      format: "json"
+      output: "stdout"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: slack-secret
+  namespace: log-monitoring
+  labels:
+    app: alert-engine
+type: Opaque
+data:
+  # Base64 encoded Slack webhook URL
+  # To create: echo -n "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK" | base64
+  webhook-url: ""
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-secret
+  namespace: log-monitoring
+  labels:
+    app: alert-engine
+type: Opaque
+data:
+  # Base64 encoded Redis password (if required)
+  # To create: echo -n "your-redis-password" | base64
+  password: ""
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: alert-engine-hpa
+  namespace: log-monitoring
+  labels:
+    app: alert-engine
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: alert-engine
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: alert-engine-pdb
+  namespace: log-monitoring
+  labels:
+    app: alert-engine
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: alert-engine 
