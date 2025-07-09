@@ -1465,8 +1465,11 @@ EOF
 # Check ClusterLogForwarder status
 oc get clusterlogforwarder kafka-alert-forwarder -n openshift-logging -o yaml
 
-# Check vector pods (log collectors)
-oc get pods -n openshift-logging -l component=collector
+# Check vector pods (log collectors) - specific to kafka-alert-forwarder
+oc get pods -n openshift-logging -l app.kubernetes.io/component=collector,app.kubernetes.io/instance=kafka-alert-forwarder
+
+# Alternative: Check all collector pods (both logging and kafka-alert-forwarder)
+oc get pods -n openshift-logging -l app.kubernetes.io/component=collector
 
 # Verify logs are being forwarded to Kafka
 oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5
