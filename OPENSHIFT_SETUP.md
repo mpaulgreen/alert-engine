@@ -526,13 +526,25 @@ Supported versions are: [3.8.0, 3.9.0]
 4. Click **Install**
 5. Configure:
    - **Installation Mode**: Install to specific namespace (create `redis-enterprise`)
-   - **Update Channel**: Latest stable version
+   - **Update Channel**: Production (NOT stable)
    - **Update Approval**: Manual
 
 **Using CLI:**
 ```bash
 # Create namespace
 oc create namespace redis-enterprise
+
+# Create OperatorGroup first (CRITICAL - prevents most installation issues)
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: redis-enterprise-og
+  namespace: redis-enterprise
+spec:
+  targetNamespaces:
+  - redis-enterprise
+EOF
 
 # Install Redis Enterprise Operator subscription
 cat <<EOF | oc apply -f -
@@ -542,7 +554,7 @@ metadata:
   name: redis-enterprise-operator
   namespace: redis-enterprise
 spec:
-  channel: stable
+  channel: production  # Use 'production' NOT 'stable'
   name: redis-enterprise-operator-cert
   source: certified-operators
   sourceNamespace: openshift-marketplace
@@ -553,7 +565,7 @@ EOF
 
 After installing the Redis Enterprise operator, validate the installation:
 
-#### Check the Subscription Status
+#### Step 2.2.1: Check Subscription Status
 
 ```bash
 # Check the Subscription status (use full API resource to avoid conflicts)
@@ -563,7 +575,53 @@ oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-ent
 oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise -o yaml
 ```
 
-#### Check the ClusterServiceVersion (CSV)
+**Expected Output:**
+```
+NAME                        PACKAGE                          SOURCE                CHANNEL
+redis-enterprise-operator   redis-enterprise-operator-cert   certified-operators   production
+```
+
+#### Step 2.2.2: Check OperatorGroup (CRITICAL)
+
+```bash
+# Verify OperatorGroup exists
+oc get operatorgroup -n redis-enterprise
+```
+
+**Expected Output:**
+```
+NAME                 AGE
+redis-enterprise-og  2m
+```
+
+**⚠️ If no OperatorGroup exists, create it:**
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: redis-enterprise-og
+  namespace: redis-enterprise
+spec:
+  targetNamespaces:
+  - redis-enterprise
+EOF
+```
+
+#### Step 2.2.3: Check InstallPlan
+
+```bash
+# Check InstallPlan creation and status
+oc get installplan -n redis-enterprise
+```
+
+**Expected Output:**
+```
+NAME            CSV                                      APPROVAL    APPROVED
+install-xxxxx   redis-enterprise-operator.v7.22.0-11.2   Automatic   true
+```
+
+#### Step 2.2.4: Check ClusterServiceVersion (CSV)
 
 ```bash
 # Check CSV status
@@ -575,11 +633,11 @@ oc get csv -n redis-enterprise -o wide
 
 **Expected Output:**
 ```
-NAME                                    DISPLAY                       VERSION   REPLACES   PHASE
-redis-enterprise-operator.v6.x.x       Redis Enterprise Operator     6.x.x                Succeeded
+NAME                                      DISPLAY                       VERSION         PHASE
+redis-enterprise-operator.v7.22.0-11.2   Redis Enterprise Operator    7.22.0-11.2     Succeeded
 ```
 
-#### Verify Operator Pod is Running
+#### Step 2.2.5: Verify Operator Pod is Running
 
 ```bash
 # Check operator pods
@@ -592,10 +650,10 @@ oc get deployment -n redis-enterprise
 **Expected Output:**
 ```
 NAME                                       READY   STATUS    RESTARTS   AGE
-redis-enterprise-operator-xxxxxxxxx-xxxxx   1/1     Running   0          2m
+redis-enterprise-operator-6f95fb6b4f-97w6b   2/2     Running   0          2m
 ```
 
-#### Check Operator Logs
+#### Step 2.2.6: Check Operator Logs
 
 ```bash
 # Check operator logs for any issues
@@ -605,27 +663,207 @@ oc logs deployment/redis-enterprise-operator -n redis-enterprise
 oc logs -f deployment/redis-enterprise-operator -n redis-enterprise
 ```
 
-#### Verify CRDs are Installed
+#### Step 2.2.7: Verify CRDs are Installed
 
 ```bash
 # Check for Redis Enterprise CRDs
 oc get crd | grep redis
+
+# Check for Redis Enterprise specific CRDs
+oc get crd | grep redislabs
 ```
 
 **Expected CRDs:**
 ```
+redisenterpriseactiveactivedatabases.app.redislabs.com
 redisenterpriseclusters.app.redislabs.com
-redisenterprisedatabases.app.redislabs.com
+redisenterprisedatabases.app.redislabs.com  
+redisenterpriseremoteclusters.app.redislabs.com
 ```
 
-#### Quick Validation
+#### Step 2.2.8: Complete Validation Script
+
+Run this comprehensive validation script:
 
 ```bash
-# One-liner validation
-oc get csv -n redis-enterprise --no-headers | grep -q "Succeeded" && echo "✅ Redis Enterprise Operator Ready" || echo "❌ Installation Failed/In Progress"
+#!/bin/bash
+
+echo "=== Redis Enterprise Operator Validation ==="
+echo ""
+
+echo "1. Checking Subscription..."
+oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
+echo ""
+
+echo "2. Checking OperatorGroup..."
+oc get operatorgroup -n redis-enterprise
+echo ""
+
+echo "3. Checking InstallPlan..."
+oc get installplan -n redis-enterprise
+echo ""
+
+echo "4. Checking ClusterServiceVersion..."
+oc get csv -n redis-enterprise | grep redis
+echo ""
+
+echo "5. Checking Operator Pods..."
+oc get pods -n redis-enterprise
+echo ""
+
+echo "6. Checking CRDs..."
+echo "Redis Enterprise CRDs:"
+oc get crd | grep redislabs | head -4
+echo ""
+
+echo "7. Final Validation..."
+if oc get csv -n redis-enterprise --no-headers | grep redis | grep -q "Succeeded"; then
+    echo "✅ Redis Enterprise Operator is successfully installed!"
+    echo "Operator Version: $(oc get csv -n redis-enterprise --no-headers | grep redis | awk '{print $3}')"
+else
+    echo "❌ Redis Enterprise Operator installation failed or in progress"
+    echo "Troubleshooting required - check OperatorGroup, channel name, and InstallPlan status"
+fi
+echo ""
 ```
 
-**⚠️ Important**: Only proceed to the next step after confirming the operator is successfully installed with `Phase: Succeeded`.
+#### Step 2.2.9: Troubleshooting Common Issues
+
+Based on real-world experience, here are the most common issues and their solutions:
+
+**Issue 1: Missing OperatorGroup (Most Common)**
+
+**Symptoms:**
+- Subscription exists but no CSV is created
+- No InstallPlan appears
+- No operator pods running
+
+**Diagnosis:**
+```bash
+# Check if OperatorGroup exists
+oc get operatorgroup -n redis-enterprise
+```
+
+**Solution:**
+```bash
+# Create the missing OperatorGroup
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: redis-enterprise-og
+  namespace: redis-enterprise
+spec:
+  targetNamespaces:
+  - redis-enterprise
+EOF
+```
+
+**Issue 2: Incorrect Channel Name**
+
+**Symptoms:**
+- Subscription shows constraint error: "no operators found in channel stable"
+- CSV never gets created
+
+**Diagnosis:**
+```bash
+# Check available channels
+oc describe packagemanifest redis-enterprise-operator-cert -n openshift-marketplace | grep "Name:" | grep -A 5 -B 5 "Current CSV"
+
+# Check subscription status
+oc describe subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
+```
+
+**Solution:**
+```bash
+# Delete incorrect subscription
+oc delete subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
+
+# Create new subscription with correct channel
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: redis-enterprise-operator
+  namespace: redis-enterprise
+spec:
+  channel: production  # Use 'production' NOT 'stable'
+  name: redis-enterprise-operator-cert
+  source: certified-operators
+  sourceNamespace: openshift-marketplace
+EOF
+```
+
+**Issue 3: API Resource Conflicts**
+
+**Symptoms:**
+- Error: `subscriptions.messaging.knative.dev "redis-enterprise-operator" not found`
+
+**Solution:**
+```bash
+# Always use full API resource path
+oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
+# NOT: oc get subscription redis-enterprise-operator -n redis-enterprise
+```
+
+**Issue 4: General Debugging**
+
+```bash
+# Check package availability and channels
+oc get packagemanifest -n openshift-marketplace | grep redis
+oc describe packagemanifest redis-enterprise-operator-cert -n openshift-marketplace
+
+# Check subscription conditions
+oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise -o jsonpath='{.status.conditions}' | jq .
+
+# Check events
+oc get events -n redis-enterprise --sort-by='.lastTimestamp'
+
+# Check OperatorHub availability
+oc get catalogsource -n openshift-marketplace | grep certified-operators
+```
+
+#### Step 2.2.10: Quick One-Liner Validation
+
+For a quick final check, you can use this one-liner:
+
+```bash
+oc get csv -n redis-enterprise --no-headers | grep redis | grep -q "Succeeded" && echo "✅ Redis Enterprise Operator Ready" || echo "❌ Installation Failed/In Progress"
+```
+
+**Expected Output when successful:**
+```
+✅ Redis Enterprise Operator Ready
+```
+
+**Complete validation in one command:**
+```bash
+# Full validation check
+echo "Operator Status:" && oc get csv -n redis-enterprise | grep redis && echo "Pod Status:" && oc get pods -n redis-enterprise
+```
+
+**⚠️ Important**: Only proceed to the next step after confirming:
+- CSV shows `Phase: Succeeded`
+- Operator pod is `Running` (2/2)
+- All CRDs are installed
+
+#### Step 2.2.11: Additional Validation Notes
+
+**Common Channel Names for Redis Enterprise:**
+- `production` (recommended, default)
+- `preview` (for testing new features)
+- Version-specific channels like `7.8.6`, `7.8.4`, etc.
+
+**DO NOT use `stable` - it doesn't exist for Redis Enterprise operator**
+
+**Expected final state:**
+```bash
+# All should show success
+oc get operatorgroup -n redis-enterprise    # Should show: redis-enterprise-og
+oc get installplan -n redis-enterprise      # Should show: install-xxxxx with Approved=true
+oc get csv -n redis-enterprise              # Should show: Phase=Succeeded
+oc get pods -n redis-enterprise             # Should show: Running 2/2
+```
 
 ### Step 2.3: Create Security Context Constraints
 
