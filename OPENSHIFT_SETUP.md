@@ -1298,7 +1298,19 @@ OK
 
 Create a ConfigMap with Redis connection details for your applications:
 
+**First, get the current database port:**
+```bash
+# Get the actual database port
+REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.internalEndpoints[0].port}')
+echo "Database Port: $REDIS_PORT"
+```
+
+**Create the ConfigMap with actual values:**
 ```yaml
+# Create namespace if it doesn't exist
+oc create namespace alert-engine --dry-run=client -o yaml | oc apply -f -
+
+# Create ConfigMap with correct Redis connection details
 cat <<EOF | oc apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -1306,10 +1318,74 @@ metadata:
   name: redis-config
   namespace: alert-engine
 data:
-  redis-host: "rec-alert-engine.redis-enterprise.svc.cluster.local"
-  redis-port: "$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
+  # Use the database service name, not the cluster service
+  redis-host: "alert-engine-cache.redis-enterprise.svc.cluster.local"
+  redis-port: "13066"
   redis-database: "alert-engine-cache"
+  # Alternative internal endpoint (more reliable for enterprise features)
+  redis-internal-host: "redis-13066.rec-alert-engine.redis-enterprise.svc.cluster.local"
+  # Cluster information
+  redis-cluster: "rec-alert-engine"
+  redis-namespace: "redis-enterprise"
+  # Secret reference for password
+  redis-secret-name: "redb-alert-engine-cache"
 EOF
+```
+
+**Create a Secret reference for the password:**
+```yaml
+# Option 1: Copy the password to your application namespace
+oc get secret redb-alert-engine-cache -n redis-enterprise -o yaml | \
+  sed 's/namespace: redis-enterprise/namespace: alert-engine/' | \
+  oc apply -f -
+
+# Option 2: Create a new secret with just the password
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-password
+  namespace: alert-engine
+type: Opaque
+data:
+  password: $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}')
+EOF
+```
+
+**Verify the ConfigMap:**
+```bash
+# Check ConfigMap contents
+oc get configmap redis-config -n alert-engine -o yaml
+
+# Test the connection details
+echo "Redis connection details:"
+echo "Host: $(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-host}')"
+echo "Port: $(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-port}')"
+echo "Password: $(oc get secret redis-password -n alert-engine -o jsonpath='{.data.password}' | base64 -d)"
+```
+
+**Test Redis Connection:**
+```bash
+# Test Redis connection using ConfigMap values
+REDIS_HOST=$(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-host}')
+REDIS_PORT=$(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-port}')
+REDIS_PASSWORD=$(oc get secret redis-password -n alert-engine -o jsonpath='{.data.password}' | base64 -d)
+
+# Test connection with ping
+oc run redis-connection-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h $REDIS_HOST -p $REDIS_PORT -a $REDIS_PASSWORD ping
+
+# Test ReJSON module
+oc run redis-json-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h $REDIS_HOST -p $REDIS_PORT -a $REDIS_PASSWORD JSON.SET test:config $ '{"app":"alert-engine","status":"ready"}'
+
+# Test RedisTimeSeries module
+oc run redis-ts-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h $REDIS_HOST -p $REDIS_PORT -a $REDIS_PASSWORD TS.CREATE test:metrics
+```
+
+**Expected Output:**
+```
+PONG
+OK
+OK
 ```
 
 #### Step 2.6.4: Complete Redis Enterprise Setup Summary
@@ -1325,10 +1401,13 @@ Your Redis Enterprise setup now includes:
 5. **Security**: Secured with password authentication
 
 **Connection Details:**
-- **Host**: `rec-alert-engine.redis-enterprise.svc.cluster.local`
-- **Port**: Retrieved via `oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}'`
+- **Host**: `alert-engine-cache.redis-enterprise.svc.cluster.local` (database service)
+- **Alternative Host**: `redis-13066.rec-alert-engine.redis-enterprise.svc.cluster.local` (internal endpoint)
+- **Port**: `13066`
 - **Password**: Retrieved via `oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d`
 - **Modules**: ReJSON 2.8.8, RedisTimeSeries 1.12.6
+- **ConfigMap**: Available in `alert-engine` namespace as `redis-config`
+- **Secret**: Available in `alert-engine` namespace as `redis-password`
 
 **Next Steps:**
 - Use the connection details in your alert-engine application
