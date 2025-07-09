@@ -88,6 +88,21 @@ alert-engine/
 - Kafka cluster (Red Hat AMQ Streams)
 - Slack workspace with webhook permissions
 
+### 📋 Infrastructure Setup
+
+**IMPORTANT**: Before proceeding with the Alert Engine setup, you must first install and configure the required infrastructure components on your OpenShift cluster.
+
+👉 **[OpenShift Infrastructure Setup Guide](OPENSHIFT_SETUP.md)**
+
+This guide provides detailed instructions for:
+- Installing Red Hat AMQ Streams (Kafka) operator and cluster
+- Setting up Redis Enterprise operator and database
+- Configuring ClusterLogForwarder for log forwarding
+- Setting up network policies and security configurations
+- Verification and troubleshooting steps
+
+**Complete the infrastructure setup before proceeding with the local development or deployment steps below.**
+
 ## 🔧 Setup Instructions
 
 ### 1. Local Development Setup
