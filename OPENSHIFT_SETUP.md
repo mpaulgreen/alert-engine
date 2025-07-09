@@ -1416,132 +1416,37 @@ Your Redis Enterprise setup now includes:
 
 ## 3. ClusterLogForwarder Setup
 
-### Step 3.1: Install OpenShift Logging Operator
+**⚠️ Important Note**: In most OpenShift clusters, the OpenShift Logging Operator and logging infrastructure are already installed and configured. This section has been streamlined to focus only on creating the additional ClusterLogForwarder needed for the alert-engine.
+
+### Prerequisites Check
+
+The OpenShift Logging Operator is typically already installed in most OpenShift clusters. Let's verify this:
 
 ```bash
-# Create namespace for logging
-oc create namespace openshift-logging
+# Check if OpenShift Logging Operator is already installed
+oc get csv -n openshift-logging | grep cluster-logging
 
-# Install logging operator
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: Subscription
-metadata:
-  name: cluster-logging
-  namespace: openshift-logging
-spec:
-  channel: stable
-  name: cluster-logging
-  source: redhat-operators
-  sourceNamespace: openshift-marketplace
-EOF
-```
-
-### Step 3.2: Validate OpenShift Logging Operator Installation
-
-After installing the logging operator, validate the installation:
-
-#### Check the Subscription Status
-
-```bash
-# Check the Subscription status (use full API resource to avoid conflicts)
-oc get subscriptions.operators.coreos.com cluster-logging -n openshift-logging
-
-# Get detailed subscription info
-oc get subscriptions.operators.coreos.com cluster-logging -n openshift-logging -o yaml
-```
-
-#### Check the ClusterServiceVersion (CSV)
-
-```bash
-# Check CSV status
-oc get csv -n openshift-logging
-
-# Get detailed CSV information
-oc get csv -n openshift-logging -o wide
-```
-
-**Expected Output:**
-```
-NAME                                    DISPLAY                       VERSION   REPLACES   PHASE
-cluster-logging.v5.x.x                 Red Hat OpenShift Logging     5.x.x                Succeeded
-```
-
-#### Verify Operator Pod is Running
-
-```bash
-# Check operator pods
-oc get pods -n openshift-logging
-
-# Check operator deployment
+# Check if logging infrastructure is already deployed
 oc get deployment -n openshift-logging
 ```
 
 **Expected Output:**
 ```
-NAME                                       READY   STATUS    RESTARTS   AGE
-cluster-logging-operator-xxxxxxxxx-xxxxx    1/1     Running   0          2m
+cluster-logging.v6.x.x    Red Hat OpenShift Logging    6.x.x    Succeeded
 ```
 
-#### Check Operator Logs
+If the operator is already installed (which is common), you can skip the installation steps and proceed directly to creating the ClusterLogForwarder.
 
-```bash
-# Check operator logs for any issues
-oc logs deployment/cluster-logging-operator -n openshift-logging
-```
+### Step 3.1: Create ClusterLogForwarder for Kafka
 
-#### Verify CRDs are Installed
-
-```bash
-# Check for logging CRDs
-oc get crd | grep logging
-```
-
-**Expected CRDs:**
-```
-clusterlogforwarders.logging.coreos.com
-clusterloggings.logging.coreos.com
-```
-
-#### Quick Validation
-
-```bash
-# One-liner validation
-oc get csv -n openshift-logging --no-headers | grep -q "Succeeded" && echo "✅ OpenShift Logging Operator Ready" || echo "❌ Installation Failed/In Progress"
-```
-
-**⚠️ Important**: Only proceed to the next step after confirming the operator is successfully installed with `Phase: Succeeded`.
-
-### Step 3.3: Create ClusterLogging Instance
+Since there's already a ClusterLogForwarder named "logging" in the cluster, we'll create a new one specifically for the alert-engine with a different name:
 
 ```yaml
 cat <<EOF | oc apply -f -
-apiVersion: logging.coreos.com/v1
-kind: ClusterLogging
-metadata:
-  name: instance
-  namespace: openshift-logging
-spec:
-  managementState: Managed
-  logStore:
-    type: lokistack
-    lokistack:
-      name: logging-loki
-  collection:
-    type: vector
-  visualization:
-    type: ocp-console
-EOF
-```
-
-### Step 3.4: Create ClusterLogForwarder
-
-```yaml
-cat <<EOF | oc apply -f -
-apiVersion: logging.coreos.com/v1
+apiVersion: observability.openshift.io/v1
 kind: ClusterLogForwarder
 metadata:
-  name: kafka-log-forwarder
+  name: kafka-alert-forwarder
   namespace: openshift-logging
 spec:
   outputs:
@@ -1573,21 +1478,16 @@ spec:
     outputRefs:
     - kafka-application-logs
     filterRefs: []
-  - name: forward-to-default
-    inputRefs:
-    - infrastructure
-    - audit
-    - application
-    outputRefs:
-    - default
 EOF
 ```
 
-### Step 3.5: Verify Log Forwarding
+**Note:** This ClusterLogForwarder is separate from the existing "logging" forwarder that sends logs to LokiStack. Both can coexist, allowing logs to be sent to both destinations.
+
+### Step 3.2: Verify Log Forwarding
 
 ```bash
 # Check ClusterLogForwarder status
-oc get clusterlogforwarder kafka-log-forwarder -n openshift-logging -o yaml
+oc get clusterlogforwarder kafka-alert-forwarder -n openshift-logging -o yaml
 
 # Check vector pods (log collectors)
 oc get pods -n openshift-logging -l component=collector
@@ -1716,7 +1616,7 @@ oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
 echo ""
 
 echo "=== Verifying Log Forwarding ==="
-oc get clusterlogforwarder kafka-log-forwarder -n openshift-logging
+oc get clusterlogforwarder kafka-alert-forwarder -n openshift-logging
 echo ""
 
 echo "=== Getting Service Endpoints ==="
