@@ -909,6 +909,8 @@ oc adm policy add-scc-to-user redis-enterprise-scc -z redis-enterprise-operator 
 
 ### Step 2.4: Deploy Redis Enterprise Cluster
 
+**⚠️ Important**: Use Red Hat certified images for OpenShift compatibility.
+
 ```yaml
 cat <<EOF | oc apply -f -
 apiVersion: app.redislabs.com/v1
@@ -934,12 +936,164 @@ spec:
       serviceType: ClusterIP
     apiService:
       serviceType: ClusterIP
+  # CRITICAL: Use Red Hat certified images for OpenShift
+  bootstrapperImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
+  redisEnterpriseServicesRiggerImageSpec:
+    repository: registry.connect.redhat.com/redislabs/services-manager
   redisEnterpriseImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise
     imagePullPolicy: IfNotPresent
 EOF
 ```
 
+#### Step 2.4.1: Monitor Cluster Deployment
+
+Wait for the cluster to deploy completely:
+
+```bash
+# Monitor cluster status
+watch -n 10 'oc get redisenterprisecluster rec-alert-engine -n redis-enterprise'
+
+# Check pod status
+oc get pods -n redis-enterprise
+
+# Monitor cluster progression
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}'
+```
+
+**Expected States Progression:**
+1. `BootstrappingFirstPod` → `Initializing` → `Running`
+
+**Expected Final Output:**
+```
+NAME               NODES   SHARDS   VERSION     STATE     SPEC STATUS   LICENSE STATE   LICENSE EXPIRATION DATE   AGE
+rec-alert-engine   3       0/4      7.22.0-95   Running   Valid         Valid           2025-08-08T15:37:04Z      5m
+```
+
+#### Step 2.4.2: Troubleshooting Common Issues
+
+**Issue 1: Image Pull Errors**
+
+**Symptoms:**
+- Pods show `ImagePullBackOff` or `ErrImagePull`
+- Error: `manifest unknown` for Docker Hub images
+
+**Diagnosis:**
+```bash
+# Check pod errors
+oc describe pod rec-alert-engine-0 -n redis-enterprise
+```
+
+**Solution:**
+- Ensure you're using **Red Hat certified images** (see configuration above)
+- Delete and recreate cluster if using incorrect images:
+```bash
+oc delete redisenterprisecluster rec-alert-engine -n redis-enterprise
+# Then recreate with correct images
+```
+
+**Issue 2: Cluster Stuck in BootstrappingFirstPod**
+
+**Symptoms:**
+- Cluster state remains in `BootstrappingFirstPod` for > 10 minutes
+- Pods not reaching Running state
+
+**Diagnosis:**
+```bash
+# Check cluster events
+oc get events -n redis-enterprise --sort-by='.lastTimestamp'
+
+# Check pod logs
+oc logs rec-alert-engine-0 -c bootstrapper -n redis-enterprise
+```
+
+**Solution:**
+- Verify storage class exists and is accessible
+- Check node resources and scheduling constraints
+- Ensure Security Context Constraints are properly configured
+
+**Issue 3: License Issues**
+
+**Symptoms:**
+- License state shows as invalid or expired
+- Cluster fails to reach Running state
+
+**Diagnosis:**
+```bash
+# Check license status
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus}'
+```
+
+**Solution:**
+- Redis Enterprise operator includes a 30-day trial license
+- For production, obtain a proper license from Redis
+
+#### Step 2.4.3: Final Cluster Validation
+
+```bash
+#!/bin/bash
+
+echo "=== Redis Enterprise Cluster Validation ==="
+echo ""
+
+echo "1. Cluster Status:"
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise
+echo ""
+
+echo "2. Pod Status:"
+oc get pods -n redis-enterprise
+echo ""
+
+echo "3. License Status:"
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus.licenseState}'
+echo ""
+
+echo "4. Available Modules:"
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[*].name}'
+echo ""
+
+echo "5. Final Validation:"
+if [[ $(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}') == "Running" ]]; then
+    echo "✅ Redis Enterprise Cluster is Ready!"
+    echo "Available Shards: $(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus.shardsUsage}')"
+else
+    echo "❌ Redis Enterprise Cluster not ready - check troubleshooting steps above"
+fi
+echo ""
+```
+
+**Expected successful output:**
+```
+✅ Redis Enterprise Cluster is Ready!
+Available Shards: 0/4
+```
+
 ### Step 2.5: Create Redis Database
+
+**⚠️ Important**: Wait for the Redis Enterprise Cluster to reach `Running` state before creating databases.
+
+#### Step 2.5.1: Check Available Modules and Versions
+
+Before creating the database, check what modules are available:
+
+```bash
+# Check available modules and versions
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[*]}'
+
+# Format for easier reading
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{range .status.modules[*]}{.name}: {.versions[0]}{"\n"}{end}'
+```
+
+**Expected Output:**
+```
+ReJSON: 2.8.8
+bf: 2.8.6
+search: 2.10.17
+timeseries: 1.12.6
+```
+
+#### Step 2.5.2: Create Database
 
 ```yaml
 cat <<EOF | oc apply -f -
@@ -949,18 +1103,145 @@ metadata:
   name: alert-engine-cache
   namespace: redis-enterprise
 spec:
-  memorySize: 2GB
+  memorySize: 1GB  # Use 1GB to avoid shard allocation issues
   redisEnterpriseCluster:
     name: rec-alert-engine
   type: redis
-  persistence: aof
-  aofPolicy: appendfsync-every-sec
+  persistence: aofEverySecond  # Use correct persistence value
   redisModule:
   - name: ReJSON
-    version: "2.6.6"
-  - name: RedisTimeSeries  
-    version: "1.10.11"
+    version: "2.8.8"          # Use available version
+  - name: timeseries          # Use 'timeseries' not 'RedisTimeSeries'
+    version: "1.12.6"         # Use available version
 EOF
+```
+
+#### Step 2.5.3: Monitor Database Creation
+
+```bash
+# Monitor database creation
+watch -n 5 'oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise'
+
+# Check database status
+oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
+```
+
+**Expected Output:**
+```
+NAME                 VERSION   PORT    CLUSTER            SHARDS   STATUS   SPEC STATUS   AGE
+alert-engine-cache   7.4.2     13066   rec-alert-engine   1        active   Valid         30s
+```
+
+#### Step 2.5.4: Troubleshooting Database Creation Issues
+
+**Issue 1: Cannot Allocate Nodes for Shards**
+
+**Symptoms:**
+- Error: `Cannot allocate nodes for shards`
+- Database creation fails
+
+**Diagnosis:**
+```bash
+# Check cluster shard usage
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus.shardsUsage}'
+
+# Check cluster resource limits
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus.shardsLimit}'
+```
+
+**Solution:**
+- Reduce memory size (try 1GB instead of 2GB)
+- Check if cluster has available shards
+- Verify cluster is in `Running` state
+
+**Issue 2: Invalid Persistence Value**
+
+**Symptoms:**
+- Error: `Unsupported value: "aof"`
+- Database validation fails
+
+**Valid persistence values:**
+- `disabled`
+- `aofEverySecond` (recommended)
+- `aofAlways`
+- `snapshotEvery1Hour`
+- `snapshotEvery6Hour`
+- `snapshotEvery12Hour`
+
+**Issue 3: Module Version Errors**
+
+**Symptoms:**
+- Module version not available
+- Database creation fails
+
+**Solution:**
+```bash
+# Check available module versions
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[?(@.name=="ReJSON")].versions[*]}'
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[?(@.name=="timeseries")].versions[*]}'
+```
+
+**Issue 4: Cluster Not Ready**
+
+**Symptoms:**
+- Error: `could not get cluster object`
+- Connection refused errors
+
+**Solution:**
+```bash
+# Verify cluster is running
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise
+
+# Wait for cluster to be ready
+until [[ $(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}') == "Running" ]]; do
+  echo "Waiting for cluster to be ready..."
+  sleep 10
+done
+```
+
+#### Step 2.5.5: Database Validation Script
+
+```bash
+#!/bin/bash
+
+echo "=== Redis Enterprise Database Validation ==="
+echo ""
+
+echo "1. Cluster Status:"
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise
+echo ""
+
+echo "2. Database Status:"
+oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
+echo ""
+
+echo "3. Connection Information:"
+DATABASE_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.redisEnterpriseCluster}')
+echo "Database Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
+echo ""
+
+echo "4. Final Validation:"
+if [[ $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.status}') == "active" ]]; then
+    echo "✅ Redis Enterprise Database is Ready!"
+    echo "Connection Details:"
+    echo "  - Name: alert-engine-cache"
+    echo "  - Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
+    echo "  - Modules: ReJSON, RedisTimeSeries"
+    echo "  - Persistence: AOF Every Second"
+else
+    echo "❌ Redis Enterprise Database not ready - check troubleshooting steps above"
+fi
+echo ""
+```
+
+**Expected successful output:**
+```
+✅ Redis Enterprise Database is Ready!
+Connection Details:
+  - Name: alert-engine-cache
+  - Port: 13066
+  - Modules: ReJSON, RedisTimeSeries
+  - Persistence: AOF Every Second
 ```
 
 ### Step 2.6: Verify Redis Installation
@@ -977,7 +1258,82 @@ oc get pods -n redis-enterprise
 
 # Get Redis connection info
 oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d
+echo  # Add newline after password
+
+# Get database port
+oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}'
+echo  # Add newline after port
+
+# Get full connection string
+echo "Connection details:"
+echo "Host: rec-alert-engine.redis-enterprise.svc.cluster.local"
+echo "Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
+echo "Password: $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d)"
 ```
+
+#### Step 2.6.1: Test Redis Connection
+
+```bash
+# Test Redis connection from within the cluster
+oc run redis-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h rec-alert-engine.redis-enterprise.svc.cluster.local -p $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}') -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d)
+```
+
+#### Step 2.6.2: Test Redis Modules
+
+```bash
+# Test ReJSON module
+oc run redis-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h rec-alert-engine.redis-enterprise.svc.cluster.local -p $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}') -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d) JSON.SET test $ '{"message":"Hello Redis Enterprise!"}'
+
+# Test RedisTimeSeries module
+oc run redis-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h rec-alert-engine.redis-enterprise.svc.cluster.local -p $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}') -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d) TS.CREATE test-metric
+```
+
+**Expected Output:**
+```
+OK
+OK
+```
+
+#### Step 2.6.3: Create ConfigMap for Application
+
+Create a ConfigMap with Redis connection details for your applications:
+
+```yaml
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: alert-engine
+data:
+  redis-host: "rec-alert-engine.redis-enterprise.svc.cluster.local"
+  redis-port: "$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
+  redis-database: "alert-engine-cache"
+EOF
+```
+
+#### Step 2.6.4: Complete Redis Enterprise Setup Summary
+
+**✅ Redis Enterprise Setup Complete**
+
+Your Redis Enterprise setup now includes:
+
+1. **Operator**: Redis Enterprise Operator v7.22.0-11.2
+2. **Cluster**: 3-node cluster with 4 available shards
+3. **Database**: alert-engine-cache with ReJSON and RedisTimeSeries modules
+4. **Persistence**: AOF Every Second
+5. **Security**: Secured with password authentication
+
+**Connection Details:**
+- **Host**: `rec-alert-engine.redis-enterprise.svc.cluster.local`
+- **Port**: Retrieved via `oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}'`
+- **Password**: Retrieved via `oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d`
+- **Modules**: ReJSON 2.8.8, RedisTimeSeries 1.12.6
+
+**Next Steps:**
+- Use the connection details in your alert-engine application
+- Configure log forwarding to send logs to your application for processing
+- Set up monitoring and alerting rules
 
 ## 3. ClusterLogForwarder Setup
 
