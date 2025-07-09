@@ -59,11 +59,11 @@ After installing the operator, it's crucial to validate that it's properly insta
 #### Check the Subscription Status
 
 ```bash
-# Check the Subscription status
-oc get subscription amq-streams -n amq-streams-kafka -o yaml
+# Check the Subscription status (use full API resource to avoid conflicts)
+oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka -o yaml
 
 # Quick status check
-oc get subscription amq-streams -n amq-streams-kafka
+oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka
 ```
 
 **Expected Output:**
@@ -232,7 +232,7 @@ oc get namespace amq-streams-kafka --show-labels
 oc get events -n amq-streams-kafka --sort-by='.lastTimestamp'
 
 # Check subscription conditions
-oc get subscription amq-streams -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
+oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
 ```
 
 **Manual Approval (if needed):**
@@ -431,11 +431,11 @@ After installing the Redis Enterprise operator, validate the installation:
 #### Check the Subscription Status
 
 ```bash
-# Check the Subscription status
-oc get subscription redis-enterprise-operator -n redis-enterprise
+# Check the Subscription status (use full API resource to avoid conflicts)
+oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
 
 # Get detailed subscription info
-oc get subscription redis-enterprise-operator -n redis-enterprise -o yaml
+oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise -o yaml
 ```
 
 #### Check the ClusterServiceVersion (CSV)
@@ -646,11 +646,11 @@ After installing the logging operator, validate the installation:
 #### Check the Subscription Status
 
 ```bash
-# Check the Subscription status
-oc get subscription cluster-logging -n openshift-logging
+# Check the Subscription status (use full API resource to avoid conflicts)
+oc get subscriptions.operators.coreos.com cluster-logging -n openshift-logging
 
 # Get detailed subscription info
-oc get subscription cluster-logging -n openshift-logging -o yaml
+oc get subscriptions.operators.coreos.com cluster-logging -n openshift-logging -o yaml
 ```
 
 #### Check the ClusterServiceVersion (CSV)
@@ -961,10 +961,31 @@ After completing this infrastructure setup:
 
 ### Common Issues
 
-1. **Kafka not ready**: Check storage class and resource limits
-2. **Redis connection issues**: Verify SCC and network policies
-3. **Log forwarding not working**: Check vector collector pods in openshift-logging namespace
-4. **Permission denied**: Ensure proper RBAC and SCC configurations
+1. **Subscription API Conflicts**: If you get `subscriptions.messaging.knative.dev` error, use the full API resource:
+   ```bash
+   # Wrong (may cause conflicts)
+   oc get subscription amq-streams -n amq-streams-kafka
+   
+   # Correct (explicit API group)
+   oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka
+   ```
+
+2. **Debugging API Resource Conflicts**:
+   ```bash
+   # Check all subscription resources available
+   oc api-resources | grep subscription
+   
+   # Check what subscriptions exist in the namespace
+   oc get subscriptions.operators.coreos.com -n amq-streams-kafka
+   
+   # Check if there are knative subscriptions (causing the conflict)
+   oc get subscriptions.messaging.knative.dev -A 2>/dev/null || echo 'No knative subscriptions found'
+   ```
+
+3. **Kafka not ready**: Check storage class and resource limits
+4. **Redis connection issues**: Verify SCC and network policies
+5. **Log forwarding not working**: Check vector collector pods in openshift-logging namespace
+6. **Permission denied**: Ensure proper RBAC and SCC configurations
 
 ### Useful Commands
 
