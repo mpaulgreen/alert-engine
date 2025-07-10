@@ -1358,7 +1358,66 @@ OK
 OK
 ```
 
-#### Step 2.6.3: Complete Redis Enterprise Setup Summary
+#### Step 2.6.3: Complete Redis Enterprise Verification
+
+Run this comprehensive verification to ensure all components are working correctly:
+
+```bash
+# Complete Redis Enterprise verification
+echo "=== Redis Enterprise Complete Verification ===" && \
+echo "1. Cluster Status:" && \
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise && \
+echo "" && \
+echo "2. Database Status:" && \
+oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise && \
+echo "" && \
+echo "3. Pod Status:" && \
+oc get pods -n redis-enterprise && \
+echo "" && \
+echo "4. Service Status:" && \
+oc get svc -n redis-enterprise && \
+echo "" && \
+echo "5. Connection Test:" && \
+oc run redis-connection-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p 13261 -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d) ping
+```
+
+**Expected Output:**
+```
+=== Redis Enterprise Complete Verification ===
+1. Cluster Status:
+NAME               NODES   SHARDS   VERSION     STATE     SPEC STATUS   LICENSE STATE   LICENSE EXPIRATION DATE   AGE
+rec-alert-engine   3       1/4      7.22.0-95   Running   Valid         Valid           2025-08-09T13:08:06Z      6m32s
+
+2. Database Status:
+NAME                 VERSION   PORT    CLUSTER            SHARDS   STATUS   SPEC STATUS   AGE
+alert-engine-cache   7.4.2     13261   rec-alert-engine   1        active   Valid         2m28s
+
+3. Pod Status:
+NAME                                                READY   STATUS    RESTARTS   AGE
+rec-alert-engine-0                                  2/2     Running   0          6m31s
+rec-alert-engine-1                                  2/2     Running   0          6m31s
+rec-alert-engine-2                                  2/2     Running   0          6m31s
+rec-alert-engine-services-rigger-6995788557-x4kdp   1/1     Running   0          6m32s
+redis-enterprise-operator-86bfddd997-xzgnn          2/2     Running   0          8m5s
+
+4. Service Status:
+NAME                                TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE
+alert-engine-cache                  ClusterIP   172.30.71.138   <none>        13261/TCP           93s
+alert-engine-cache-headless         ClusterIP   None            <none>        13261/TCP           93s
+rec-alert-engine                    ClusterIP   172.30.127.47   <none>        9443/TCP,8001/TCP   5m38s
+
+5. Connection Test:
+Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe.
+PONG
+```
+
+**✅ Success Criteria:**
+- Cluster STATE shows "Running"
+- Database STATUS shows "active"
+- All pods show "Running" status
+- Connection test returns "PONG"
+
+#### Step 2.6.4: Complete Redis Enterprise Setup Summary
 
 **✅ Redis Enterprise Setup Complete**
 
@@ -1372,8 +1431,8 @@ Your Redis Enterprise setup now includes:
 
 **Connection Details:**
 - **Host**: `alert-engine-cache.redis-enterprise.svc.cluster.local` (database service)
-- **Alternative Host**: `redis-13066.rec-alert-engine.redis-enterprise.svc.cluster.local` (internal endpoint)
-- **Port**: `13066`
+- **Alternative Host**: `redis-13261.rec-alert-engine.redis-enterprise.svc.cluster.local` (internal endpoint)
+- **Port**: `13261` (use the actual port from verification output)
 - **Password**: Retrieved via `oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d`
 - **Modules**: ReJSON 2.8.8, RedisTimeSeries 1.12.6
 - **ConfigMap**: Available in `alert-engine` namespace as `redis-config`
