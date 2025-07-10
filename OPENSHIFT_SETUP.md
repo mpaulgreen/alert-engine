@@ -135,7 +135,7 @@ oc get csv -n amq-streams-kafka | grep amq
 **Expected Output:**
 ```
 NAME                              DISPLAY                         VERSION   REPLACES                           PHASE
-amqstreams.v2.9.1-0               Streams for Apache Kafka        2.9.1-0   amqstreams.v2.8.0-0-0.1738265624.p  Succeeded
+amqstreams.v2.9.1-0               Streams for Apache Kafka        2.9.1-0   amqstreams.v2.8.0-0.1738265624.p  Succeeded
 ```
 
 **Key Status to Look For:**
@@ -1443,34 +1443,289 @@ Your Redis Enterprise setup now includes:
 - Configure log forwarding to send logs to your application for processing
 - Set up monitoring and alerting rules
 
-## 3. ClusterLogForwarder Setup
+## 3. OpenShift Logging and Log Forwarding Setup
 
-**⚠️ Important Note**: In most OpenShift clusters, the OpenShift Logging Operator and logging infrastructure are already installed and configured. This section has been streamlined to focus only on creating the additional ClusterLogForwarder needed for the alert-engine.
+### Overview
 
-### Prerequisites Check
+This section sets up log collection and forwarding infrastructure to send application logs to the Kafka topic for processing by the Alert Engine. We'll use the OpenShift Logging Operator with an alternative sidecar-based approach for reliable log forwarding.
 
-The OpenShift Logging Operator is typically already installed in most OpenShift clusters. Let's verify this:
+**Important Note**: OpenShift Logging Operator v6.2.3 has a known issue where ClusterLogForwarder doesn't properly populate Kafka bootstrap servers in the Vector configuration. This guide provides a working alternative approach using a sidecar-based log forwarder.
+
+### Step 3.1: Install OpenShift Logging Operator
+
+The OpenShift Logging Operator is **NOT** pre-installed in most clusters. We need to install it from scratch:
+
+#### Step 3.1.1: Create Namespace and OperatorGroup
 
 ```bash
-# Check if OpenShift Logging Operator is already installed
-oc get csv -n openshift-logging | grep cluster-logging
+# Create the openshift-logging namespace
+oc create namespace openshift-logging
 
-# Check if logging infrastructure is already deployed
-oc get deployment -n openshift-logging
+# Create OperatorGroup (CRITICAL - prevents installation issues)
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: cluster-logging
+  namespace: openshift-logging
+spec:
+  targetNamespaces:
+  - openshift-logging
+EOF
+```
+
+#### Step 3.1.2: Install the Operator
+
+```bash
+# Check available channels
+oc describe packagemanifest cluster-logging -n openshift-marketplace | grep -A 10 "Default Channel"
+
+# Install the operator
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-logging
+  namespace: openshift-logging
+spec:
+  channel: stable-6.2
+  name: cluster-logging
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+EOF
+```
+
+#### Step 3.1.3: Validate Installation
+
+```bash
+# Wait for CSV to reach Succeeded state
+oc get csv -n openshift-logging
+
+# Check operator pod
+oc get pods -n openshift-logging
+
+# Verify CRDs are installed
+oc get crd | grep -E "(logging|clusterlog)"
+
+# Quick validation
+oc get csv -n openshift-logging --no-headers | grep cluster-logging | grep -q "Succeeded" && echo "✅ OpenShift Logging Operator Ready" || echo "❌ Installation Failed"
 ```
 
 **Expected Output:**
 ```
-cluster-logging.v6.x.x    Red Hat OpenShift Logging    6.x.x    Succeeded
+NAME                     DISPLAY                     VERSION   PHASE
+cluster-logging.v6.2.3   Red Hat OpenShift Logging   6.2.3     Succeeded
+
+✅ OpenShift Logging Operator Ready
 ```
 
-If the operator is already installed (which is common), you can skip the installation steps and proceed directly to creating the ClusterLogForwarder.
+### Step 3.2: Create Service Account and RBAC
 
-### Step 3.1: Create ClusterLogForwarder for Kafka
+Create the necessary service account and permissions for log collection:
 
-Since there's already a ClusterLogForwarder named "logging" in the cluster, we'll create a new one specifically for the alert-engine with a different name:
+```bash
+# Create service account
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: logcollector
+  namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: logcollector-collect-application-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-application-logs
+subjects:
+- kind: ServiceAccount
+  name: logcollector
+  namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: logcollector-write-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: logging-collector-logs-writer
+subjects:
+- kind: ServiceAccount
+  name: logcollector
+  namespace: openshift-logging
+EOF
+```
 
-```yaml
+### Step 3.3: Alternative Log Forwarding Approach (Sidecar Pattern)
+
+Due to the Vector configuration issue in OpenShift Logging Operator v6.2.3, we'll use a proven alternative approach with a sidecar-based log forwarder.
+
+#### Step 3.3.1: Create Test Application with Kafka Forwarder Sidecar
+
+```bash
+# Create test application with Kafka producer sidecar
+cat <<EOF | oc apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: log-generator-with-kafka
+  namespace: alert-engine
+  labels:
+    app: log-generator-with-kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: log-generator-with-kafka
+  template:
+    metadata:
+      labels:
+        app: log-generator-with-kafka
+    spec:
+      containers:
+      - name: log-generator
+        image: busybox:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            timestamp=\$(date -Iseconds)
+            sequence=\$(date +%s)
+            echo "{\\"timestamp\\":\\"\$timestamp\\",\\"level\\":\\"INFO\\",\\"message\\":\\"Test application log message\\",\\"service\\":\\"log-generator\\",\\"namespace\\":\\"alert-engine\\",\\"sequence\\":\$sequence}" | tee /shared/app.log
+            echo "{\\"timestamp\\":\\"\$timestamp\\",\\"level\\":\\"WARN\\",\\"message\\":\\"Warning message from test application\\",\\"service\\":\\"log-generator\\",\\"namespace\\":\\"alert-engine\\",\\"sequence\\":\$sequence}" | tee -a /shared/app.log
+            echo "{\\"timestamp\\":\\"\$timestamp\\",\\"level\\":\\"ERROR\\",\\"message\\":\\"Error message for testing alerts\\",\\"service\\":\\"log-generator\\",\\"namespace\\":\\"alert-engine\\",\\"sequence\\":\$sequence}" | tee -a /shared/app.log
+            sleep 10
+          done
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: shared-logs
+          mountPath: /shared
+      - name: kafka-forwarder
+        image: confluentinc/cp-kafka:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "Starting Kafka log forwarder..."
+          while true; do
+            if [ -f /shared/app.log ]; then
+              tail -f /shared/app.log | /usr/bin/kafka-console-producer --bootstrap-server alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092 --topic application-logs
+            else
+              sleep 5
+            fi
+          done
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: shared-logs
+          mountPath: /shared
+      volumes:
+      - name: shared-logs
+        emptyDir: {}
+      restartPolicy: Always
+EOF
+```
+
+#### Step 3.3.2: Verify Deployment
+
+```bash
+# Check deployment status
+oc get pods -n alert-engine
+
+# Check application logs
+POD_NAME=$(oc get pods -n alert-engine --no-headers | grep log-generator-with-kafka | awk '{print $1}')
+oc logs -n alert-engine $POD_NAME -c log-generator --tail=5
+
+# Check forwarder logs
+oc logs -n alert-engine $POD_NAME -c kafka-forwarder --tail=5
+```
+
+**Expected Output:**
+```
+NAME                                        READY   STATUS    RESTARTS   AGE
+log-generator-with-kafka-5958dffd98-qpwhg   2/2     Running   0          47s
+
+# Application logs showing structured JSON
+{"timestamp":"2025-07-10T14:04:57+00:00","level":"INFO","message":"Test application log message","service":"log-generator","namespace":"alert-engine","sequence":1752156297}
+
+# Forwarder logs showing activity
+Starting Kafka log forwarder...
+tail: /shared/app.log: file truncated
+```
+
+### Step 3.4: Validate End-to-End Log Flow
+
+Now test the complete log flow from application to Kafka:
+
+#### Step 3.4.1: Test Manual Kafka Message
+
+```bash
+# Send a manual test message to verify Kafka connectivity
+echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'","level":"INFO","message":"Manual test from log validation","service":"manual-test","namespace":"alert-engine"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
+```
+
+#### Step 3.4.2: Verify Log Flow
+
+```bash
+# Test Kafka consumer to see all messages (manual + application logs)
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 8 --timeout-ms 15000
+```
+
+**Expected Output:**
+```
+{"timestamp":"2025-07-10T14:03:01Z","level":"INFO","message":"Manual test from log validation","service":"manual-test","namespace":"alert-engine"}
+{"timestamp":"2025-07-10T14:04:27+00:00","level":"INFO","message":"Test application log message","service":"log-generator","namespace":"alert-engine","sequence":1752156267}
+{"timestamp":"2025-07-10T14:04:27+00:00","level":"WARN","message":"Warning message from test application","service":"log-generator","namespace":"alert-engine","sequence":1752156267}
+{"timestamp":"2025-07-10T14:04:27+00:00","level":"ERROR","message":"Error message for testing alerts","service":"log-generator","namespace":"alert-engine","sequence":1752156267}
+{"timestamp":"2025-07-10T14:04:47+00:00","level":"INFO","message":"Test application log message","service":"log-generator","namespace":"alert-engine","sequence":1752156287}
+Processed a total of 8 messages
+```
+
+#### Step 3.4.3: Complete End-to-End Validation
+
+```bash
+# Complete validation script
+echo "=== End-to-End Log Flow Validation ===" && \
+echo "1. Application Status:" && \
+oc get pods -n alert-engine && \
+echo "" && \
+echo "2. Recent Application Logs:" && \
+POD_NAME=$(oc get pods -n alert-engine --no-headers | grep log-generator-with-kafka | awk '{print $1}') && \
+oc logs -n alert-engine $POD_NAME -c log-generator --tail=3 && \
+echo "" && \
+echo "3. Kafka Consumer Test (latest logs):" && \
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5 --timeout-ms 10000
+```
+
+**✅ Success Criteria:**
+- Test application pod shows `2/2 Running` (both containers)
+- Application logs show structured JSON with current timestamps
+- Kafka consumer receives both manual test messages and real-time application logs
+- Log sequence numbers increment showing live log generation
+- No timeout errors in Kafka consumer
+
+### Step 3.5: Alternative ClusterLogForwarder (Optional)
+
+For reference, here's the ClusterLogForwarder approach that has the Vector configuration issue:
+
+```bash
+# Optional: Create ClusterLogForwarder (has known Vector bootstrap_servers issue)
 cat <<EOF | oc apply -f -
 apiVersion: observability.openshift.io/v1
 kind: ClusterLogForwarder
@@ -1479,47 +1734,98 @@ metadata:
   namespace: openshift-logging
 spec:
   serviceAccount:
-    name: collector
+    name: logcollector
   outputs:
-  - name: kafka-application-logs
+  - name: kafka-output
     type: kafka
     kafka:
+      brokers: 
+        - alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092
       topic: application-logs
-      brokers:
-      - alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092
+      tuning:
+        delivery: AtLeastOnce
+        compression: snappy
   pipelines:
-  - name: forward-application-logs
+  - name: app-logs
     inputRefs:
     - application
     outputRefs:
-    - kafka-application-logs
-    filterRefs: []
+    - kafka-output
 EOF
+
+# Check status (will show as Valid but Vector config has empty bootstrap_servers)
+oc get clusterlogforwarder kafka-alert-forwarder -n openshift-logging -o jsonpath='{.status.conditions}' | jq .
 ```
 
-**Key Configuration Details:**
-- **serviceAccount: collector** - Required field that uses the existing logging collector service account
-- **No `url` field** - For kafka outputs, only `brokers` array is needed under the `kafka` section
-- **Application logs only** - Focuses on `application` input (pod logs) which is what you need for application monitoring, not infrastructure/audit logs
-- **Separate from existing forwarder** - This ClusterLogForwarder is separate from the existing "logging" forwarder that sends logs to LokiStack. Both can coexist, allowing logs to be sent to both destinations.
+**Known Issue**: The generated Vector configuration shows `bootstrap_servers = ""` (empty) despite the ClusterLogForwarder being correctly configured. This is a bug in OpenShift Logging Operator v6.2.3.
 
-### Step 3.2: Verify Log Forwarding
+### Step 3.6: Troubleshooting
+
+#### Common Issues and Solutions:
+
+**Issue 1: Missing OperatorGroup**
+- **Symptoms**: Subscription exists but no CSV created
+- **Solution**: Create OperatorGroup before Subscription (see Step 3.1.1)
+
+**Issue 2: Vector Configuration Bug**
+- **Symptoms**: ClusterLogForwarder shows Valid but no logs flow to Kafka
+- **Diagnosis**: Check Vector config: `oc exec -n openshift-logging <collector-pod> -- cat /etc/vector/vector.toml | grep bootstrap_servers`
+- **Solution**: Use sidecar approach (Step 3.3) instead of ClusterLogForwarder
+
+**Issue 3: Sidecar Permission Issues**
+- **Symptoms**: Kafka forwarder container fails to start
+- **Solution**: Ensure alert-engine namespace exists and has proper network policies
+
+**Issue 4: Kafka Connectivity**
+- **Symptoms**: Forwarder logs show connection errors
+- **Solution**: Verify Kafka service name and port: `alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092`
+
+#### Debugging Commands:
 
 ```bash
+# Check logging operator status
+oc get csv -n openshift-logging | grep cluster-logging
+
 # Check ClusterLogForwarder status
-oc get clusterlogforwarder kafka-alert-forwarder -n openshift-logging -o yaml
+oc get clusterlogforwarder -n openshift-logging
 
-# Check vector pods (log collectors) - specific to kafka-alert-forwarder
-oc get pods -n openshift-logging -l app.kubernetes.io/component=collector,app.kubernetes.io/instance=kafka-alert-forwarder
+# Check Vector configuration for bootstrap_servers
+COLLECTOR_POD=$(oc get pods -n openshift-logging --no-headers | grep kafka-alert-forwarder | head -1 | awk '{print $1}')
+oc exec -n openshift-logging $COLLECTOR_POD -- cat /etc/vector/vector.toml | grep -A 5 -B 5 bootstrap_servers
 
-# Alternative: Check all collector pods (both logging and kafka-alert-forwarder)
-oc get pods -n openshift-logging -l app.kubernetes.io/component=collector
-
-# Verify logs are being forwarded to Kafka (with timeout to avoid hanging)
-timeout 30 oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5
-
-# If this command hangs or times out, check the troubleshooting section below
+# Test Kafka connectivity
+oc run kafka-connectivity-test --rm -i -n openshift-logging --image=busybox:latest --restart=Never -- nslookup alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local
 ```
+
+## Summary
+
+**✅ Step 3 Complete - Log Forwarding Infrastructure Deployed**
+
+### What's Working:
+1. **OpenShift Logging Operator**: v6.2.3 installed and operational
+2. **Alternative Log Forwarding**: Sidecar-based Kafka producer working reliably  
+3. **Test Application**: Generating structured JSON logs every 10 seconds
+4. **End-to-End Validation**: ✅ Logs flowing Application → Sidecar → Kafka → Consumer
+5. **Real-time Processing**: Live log generation with incrementing sequence numbers
+
+### Architecture Summary:
+- **Application Container**: Generates structured JSON logs 
+- **Kafka Forwarder Sidecar**: Reads logs and forwards to Kafka using `kafka-console-producer`
+- **Shared Volume**: EmptyDir volume for log file sharing between containers
+- **Kafka Topic**: `application-logs` receiving structured log messages
+
+### Connection Details for Alert Engine:
+- **Kafka Bootstrap Servers**: `alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092`
+- **Topic**: `application-logs`  
+- **Log Format**: Structured JSON with timestamp, level, message, service, namespace, sequence
+- **Log Volume**: ~3 messages every 10 seconds (INFO, WARN, ERROR levels)
+
+### Next Steps:
+- Configure Alert Engine application to consume from `application-logs` topic
+- Set up alerting rules based on log levels and patterns
+- Deploy Alert Engine to OpenShift using connection details above
+
+**Note**: The sidecar approach provides a reliable alternative to the Vector configuration issue in OpenShift Logging Operator v6.2.3, ensuring consistent log forwarding for Alert Engine processing.
 
 ## 4. Network Policies and Security
 
