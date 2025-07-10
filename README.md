@@ -94,12 +94,12 @@ alert-engine/
 
 👉 **[OpenShift Infrastructure Setup Guide](OPENSHIFT_SETUP.md)**
 
-This guide provides detailed instructions for:
-- Installing Red Hat AMQ Streams (Kafka) operator and cluster
-- Setting up Redis Enterprise operator and database
-- Configuring ClusterLogForwarder for log forwarding
-- Setting up network policies and security configurations
-- Verification and troubleshooting steps
+Key infrastructure components to install (15-20 minutes total):
+- **Red Hat AMQ Streams**: Install operator and deploy 3-node Kafka cluster with `application-logs` topic
+- **Redis Enterprise**: Install operator and create database with ReJSON/TimeSeries modules for state management
+- **OpenShift Logging**: Install operator and configure ClusterLogForwarder to route application logs to Kafka
+- **RBAC & Security**: Create service accounts, role bindings, and network policies for secure log collection
+- **Verification**: Test connectivity between components and validate log forwarding pipeline
 
 **Complete the infrastructure setup before proceeding with the local development or deployment steps below.**
 
