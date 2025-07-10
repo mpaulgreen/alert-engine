@@ -455,6 +455,52 @@ Supported versions are: [3.8.0, 3.9.0]
 
 **Solution:** Update the Kafka version in your cluster specification to a supported version (3.9.0 recommended).
 
+### Step 1.6: Test Kafka Producer-Consumer Flow
+
+This step verifies that messages can be successfully sent and received through the Kafka cluster.
+
+#### Step 1.6.1: Send Test Message
+
+```bash
+# Send a test JSON message to the application-logs topic
+echo '{"timestamp":"2025-07-10T12:00:00Z","level":"INFO","message":"Test message from Kafka producer","service":"kafka-test","namespace":"test"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
+```
+
+#### Step 1.6.2: Verify Message Reception
+
+```bash
+# Check if the message was received by running a consumer
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 1
+```
+
+**Expected Output:**
+```
+Defaulted container "kafka" out of: kafka, kafka-init (init)
+{"timestamp":"2025-07-10T12:00:00Z","level":"INFO","message":"Test message from Kafka producer","service":"kafka-test","namespace":"test"}
+Processed a total of 1 messages
+```
+
+#### Step 1.6.3: Complete Producer-Consumer Test
+
+```bash
+# Complete test in one command
+echo "=== Testing Kafka Producer-Consumer Flow ===" && \
+echo "1. Sending test message..." && \
+echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'","level":"INFO","message":"Kafka test successful","service":"kafka-test","namespace":"test"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs && \
+echo "2. Verifying message reception..." && \
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 1
+```
+
+**✅ Success Criteria:**
+- Producer sends message without errors
+- Consumer receives and displays the JSON message
+- Message count shows "Processed a total of 1 messages"
+
+**Troubleshooting:**
+- If producer fails: Check Kafka cluster status and topic existence
+- If consumer hangs: Verify topic has messages with `oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-topics.sh --bootstrap-server localhost:9092 --topic application-logs --describe`
+- If no messages: Check producer succeeded and topic configuration
+
 ## 2. Redis Setup using Redis Enterprise Operator
 
 ### Step 2.1: Install Redis Enterprise Operator
