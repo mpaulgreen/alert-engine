@@ -449,6 +449,55 @@ alert-kafka-cluster-zookeeper-2                         1/1     Running   0     
 alert-kafka-cluster-entity-operator-xxxxxxxxx-xxxxx     3/3     Running   0          4m
 ```
 
+### Step 1.6: Create Kafka Network Policies
+
+Set up network policies to allow access from alert-engine and openshift-logging namespaces:
+
+```bash
+# Create network policy for Kafka access
+cat <<EOF | oc apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kafka-network-policy
+  namespace: amq-streams-kafka
+spec:
+  podSelector:
+    matchLabels:
+      strimzi.io/cluster: alert-kafka-cluster
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: alert-engine
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: openshift-logging
+    ports:
+    - protocol: TCP
+      port: 9092
+    - protocol: TCP
+      port: 9093
+  egress:
+  - {}
+EOF
+```
+
+### Step 1.7: Get Kafka Connection Details
+
+```bash
+# Get Kafka connection details for application configuration
+echo "=== Kafka Connection Details ==="
+echo "Bootstrap Servers: alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
+echo "Topic: application-logs"
+echo "Service IP:"
+oc get svc alert-kafka-cluster-kafka-bootstrap -n amq-streams-kafka -o jsonpath='{.spec.clusterIP}:{.spec.ports[0].port}'
+echo ""
+```
+
 **Common Issue: Version Compatibility**
 
 If the Kafka cluster shows `NotReady` status, check for version errors:
@@ -1431,7 +1480,55 @@ PONG
 - All pods show "Running" status
 - Connection test returns "PONG"
 
-#### Step 2.6.4: Complete Redis Enterprise Setup Summary
+### Step 2.7: Create Redis Network Policies
+
+Set up network policies to allow access from alert-engine namespace:
+
+```bash
+# Create network policy for Redis access
+cat <<EOF | oc apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-network-policy
+  namespace: redis-enterprise
+spec:
+  podSelector:
+    matchLabels:
+      app: redis-enterprise
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: alert-engine
+    ports:
+    - protocol: TCP
+      port: 13066  # Default database port, adjust if different
+    - protocol: TCP
+      port: 8001   # API port
+  egress:
+  - {}
+EOF
+```
+
+### Step 2.8: Get Redis Connection Details
+
+```bash
+# Get Redis connection details for application configuration
+echo "=== Redis Connection Details ==="
+echo "Host: alert-engine-cache.redis-enterprise.svc.cluster.local"
+echo "Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
+echo "Password: $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d)"
+echo "Modules: ReJSON, RedisTimeSeries"
+echo "ConfigMap: redis-config (in alert-engine namespace)"
+echo "Secret: redis-password (in alert-engine namespace)"
+echo ""
+```
+
+#### Step 2.9: Complete Redis Enterprise Setup Summary
 
 **✅ Redis Enterprise Setup Complete**
 
@@ -1442,11 +1539,12 @@ Your Redis Enterprise setup now includes:
 3. **Database**: alert-engine-cache with ReJSON and RedisTimeSeries modules
 4. **Persistence**: AOF Every Second
 5. **Security**: Secured with password authentication
+6. **Network Policies**: Configured to allow access from alert-engine namespace
 
 **Connection Details:**
 - **Host**: `alert-engine-cache.redis-enterprise.svc.cluster.local` (database service)
-- **Alternative Host**: `redis-13261.rec-alert-engine.redis-enterprise.svc.cluster.local` (internal endpoint)
-- **Port**: `13261` (use the actual port from verification output)
+- **Alternative Host**: `redis-13066.rec-alert-engine.redis-enterprise.svc.cluster.local` (internal endpoint)
+- **Port**: `13066` (use the actual port from verification output)
 - **Password**: Retrieved via `oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d`
 - **Modules**: ReJSON 2.8.8, RedisTimeSeries 1.12.6
 - **ConfigMap**: Available in `alert-engine` namespace as `redis-config`
@@ -1673,11 +1771,48 @@ bootstrap_servers = "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.c
 
 Create a continuous log generator to test the complete ClusterLogForwarder flow:
 
-#### Step 3.4.1: Create Alert Engine Namespace
+#### Step 3.4.1: Create Alert Engine Namespace and Service Account
 
 ```bash
 # Create the alert-engine namespace if it doesn't exist
 oc create namespace alert-engine --dry-run=client -o yaml | oc apply -f -
+
+# Create service account and RBAC for alert-engine application
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alert-engine-sa
+  namespace: alert-engine
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alert-engine-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "persistentvolumeclaims", "events", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["monitoring.coreos.com"]
+  resources: ["servicemonitors"]
+  verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alert-engine-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alert-engine-role
+subjects:
+- kind: ServiceAccount
+  name: alert-engine-sa
+  namespace: alert-engine
+EOF
 ```
 
 #### Step 3.4.2: Deploy Continuous Log Generator
@@ -1978,157 +2113,187 @@ echo '{"test":"message"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-
 
 **Note**: The corrected ClusterLogForwarder configuration resolves the Vector bootstrap_servers bug in OpenShift Logging Operator v6.2.3, providing reliable, production-ready log forwarding for Alert Engine processing.
 
-## 4. Network Policies and Security
+### Step 3.6: Complete Infrastructure Verification
 
-### Step 4.1: Create Network Policies
-
-```yaml
-# Network policy for Kafka access
-cat <<EOF | oc apply -f -
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: kafka-network-policy
-  namespace: amq-streams-kafka
-spec:
-  podSelector:
-    matchLabels:
-      strimzi.io/cluster: alert-kafka-cluster
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: alert-engine  # Your application namespace
-    - namespaceSelector:
-        matchLabels:
-          name: openshift-logging
-    ports:
-    - protocol: TCP
-      port: 9092
-    - protocol: TCP
-      port: 9093
-  egress:
-  - {}
----
-# Network policy for Redis access
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: redis-network-policy
-  namespace: redis-enterprise
-spec:
-  podSelector:
-    matchLabels:
-      app: redis-enterprise
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: alert-engine  # Your application namespace
-    ports:
-    - protocol: TCP
-      port: 6379
-    - protocol: TCP
-      port: 8001
-  egress:
-  - {}
-EOF
-```
-
-### Step 4.2: Create Service Accounts and RBAC
-
-```yaml
-cat <<EOF | oc apply -f -
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: alert-engine-sa
-  namespace: alert-engine
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: alert-engine-role
-rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "endpoints", "persistentvolumeclaims", "events", "configmaps", "secrets"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["apps"]
-  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["monitoring.coreos.com"]
-  resources: ["servicemonitors"]
-  verbs: ["get", "create"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: alert-engine-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: alert-engine-role
-subjects:
-- kind: ServiceAccount
-  name: alert-engine-sa
-  namespace: alert-engine
-EOF
-```
-
-## 5. Verification and Testing
-
-### Step 5.1: Complete Infrastructure Verification
+Run this comprehensive verification to ensure all components are working together:
 
 ```bash
 #!/bin/bash
-echo "=== Verifying Kafka Setup ==="
-oc get kafka alert-kafka-cluster -n amq-streams-kafka
+echo "=== Complete Infrastructure Verification ==="
+echo ""
+
+echo "1. Kafka Cluster Status:"
+oc get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'
+echo ""
+
+echo "2. Kafka Topics:"
 oc get kafkatopic -n amq-streams-kafka
 echo ""
 
-echo "=== Verifying Redis Setup ==="
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise
-oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
+echo "3. Redis Enterprise Cluster Status:"
+oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}'
 echo ""
 
-echo "=== Verifying Log Forwarding ==="
-oc get clusterlogforwarder kafka-alert-forwarder -n openshift-logging
+echo "4. Redis Database Status:"
+oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.status}'
 echo ""
 
-echo "=== Getting Service Endpoints ==="
-echo "Kafka Bootstrap Servers:"
-oc get svc alert-kafka-cluster-kafka-bootstrap -n amq-streams-kafka
-echo ""
-echo "Redis Service:"
-oc get svc -n redis-enterprise -l app=redis-enterprise-database
+echo "5. ClusterLogForwarder Status:"
+oc get clusterlogforwarder kafka-forwarder -n openshift-logging -o jsonpath='{.status.conditions[?(@.type=="Valid")]}'
 echo ""
 
-echo "=== All infrastructure components are ready! ==="
+echo "6. Vector Collector Pods:"
+oc get pods -n openshift-logging -l app.kubernetes.io/instance=kafka-forwarder | grep Running | wc -l
+echo ""
+
+echo "7. Test Application Status:"
+oc get pods -n alert-engine -l app=continuous-log-generator -o jsonpath='{.items[0].status.phase}'
+echo ""
+
+echo "8. Service Account Status:"
+oc get serviceaccount alert-engine-sa -n alert-engine
+echo ""
+
+echo "9. Network Policies:"
+oc get networkpolicy kafka-network-policy -n amq-streams-kafka
+oc get networkpolicy redis-network-policy -n redis-enterprise
+echo ""
+
+echo "10. Connection Details Summary:"
+echo "   Kafka: alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
+echo "   Redis: alert-engine-cache.redis-enterprise.svc.cluster.local:$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null || echo '13066')"
+echo "   Topic: application-logs"
+echo "   Service Account: alert-engine-sa"
+echo ""
+
+echo "11. Final End-to-End Test - Kafka Consumer:"
+if oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- timeout 10 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --max-messages 3 2>/dev/null | grep -q "user_id"; then
+    echo "✅ SUCCESS: All infrastructure components are working correctly!"
+    echo "   - Kafka cluster is ready and accepting messages"
+    echo "   - Redis Enterprise database is active and accessible"
+    echo "   - ClusterLogForwarder is successfully forwarding logs to Kafka"
+    echo "   - Test application is generating logs that reach Kafka consumer"
+    echo "   - Network policies are configured"
+    echo "   - Service accounts and RBAC are set up"
+    echo "   - Ready for alert-engine application deployment!"
+else
+    echo "❌ ISSUE: Some components may not be fully ready. Check individual components above."
+fi
+echo ""
+echo "=== Infrastructure Setup Complete ==="
 ```
 
-### Step 5.2: Get Connection Details
+**✅ Success Criteria for Complete Setup:**
+- Kafka cluster shows `Ready: True` condition
+- Redis cluster shows `Running` state
+- Redis database shows `active` status
+- ClusterLogForwarder shows `Valid: True` condition
+- 6 Vector collector pods are running
+- Test application pod is running
+- Service account exists
+- Network policies are created
+- Kafka consumer receives test messages with `user_id` field
+
+### Step 3.7: Get All Connection Details
 
 ```bash
-# Kafka connection details
-echo "Kafka Bootstrap Servers:"
-oc get svc alert-kafka-cluster-kafka-bootstrap -n amq-streams-kafka -o jsonpath='{.spec.clusterIP}:{.spec.ports[0].port}'
+# Get all connection details needed for alert-engine application
+echo "=== Alert Engine Connection Details ==="
+echo ""
+echo "KAFKA CONFIGURATION:"
+echo "  Bootstrap Servers: alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
+echo "  Topic: application-logs"
+echo "  Service IP: $(oc get svc alert-kafka-cluster-kafka-bootstrap -n amq-streams-kafka -o jsonpath='{.spec.clusterIP}:{.spec.ports[0].port}')"
+echo ""
+echo "REDIS CONFIGURATION:"
+echo "  Host: alert-engine-cache.redis-enterprise.svc.cluster.local"
+echo "  Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null || echo '13066')"
+echo "  Password: $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+echo "  Modules: ReJSON, RedisTimeSeries"
+echo "  ConfigMap: redis-config (in alert-engine namespace)"
+echo "  Secret: redis-password (in alert-engine namespace)"
+echo ""
+echo "KUBERNETES CONFIGURATION:"
+echo "  Namespace: alert-engine"
+echo "  Service Account: alert-engine-sa"
+echo "  Network Policies: kafka-network-policy, redis-network-policy"
+echo ""
+echo "SAMPLE CONFIG.YAML:"
+cat <<EOF
+kafka:
+  brokers: ["alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"]
+  topic: "application-logs"
+  consumer_group: "alert-engine-group"
 
-# Redis connection details
-echo "Redis Host:"
-oc get svc -n redis-enterprise -l app=redis-enterprise-database -o jsonpath='{.items[0].spec.clusterIP}:{.items[0].spec.ports[0].port}'
+redis:
+  host: "alert-engine-cache.redis-enterprise.svc.cluster.local"
+  port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null || echo '13066')
+  password: "$(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+  database: 0
 
-# Redis password
-echo "Redis Password:"
-oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d
+kubernetes:
+  namespace: "alert-engine"
+  service_account: "alert-engine-sa"
+EOF
+echo ""
 ```
 
-## 6. Next Steps
+## Infrastructure Setup Complete Summary
+
+**✅ All Infrastructure Components Successfully Deployed:**
+
+### 1. **Kafka Cluster** (amq-streams-kafka namespace)
+- **Status**: 3 broker cluster with ZooKeeper ensemble
+- **Topic**: `application-logs` for log ingestion
+- **Connection**: `alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092`
+- **Network Policy**: Allows access from alert-engine and openshift-logging namespaces
+
+### 2. **Redis Enterprise** (redis-enterprise namespace)
+- **Status**: 3-node cluster with high availability
+- **Database**: `alert-engine-cache` with ReJSON and RedisTimeSeries modules
+- **Connection**: `alert-engine-cache.redis-enterprise.svc.cluster.local`
+- **Security**: Password-protected with secrets management
+- **Network Policy**: Allows access from alert-engine namespace
+
+### 3. **ClusterLogForwarder** (openshift-logging namespace)
+- **Status**: Successfully forwarding logs from all namespaces to Kafka
+- **Vector Collectors**: 6 pods running on cluster nodes
+- **Configuration**: Fixed bootstrap_servers issue with tcp:// prefix and deliveryMode
+- **Test Validation**: ✅ Confirmed end-to-end log flow
+
+### 4. **Alert Engine Namespace** (alert-engine namespace)
+- **Service Account**: `alert-engine-sa` with necessary RBAC permissions
+- **ConfigMaps**: Redis connection details
+- **Secrets**: Redis password and database credentials
+- **Test Application**: Continuous log generator for validation
+
+### 5. **Network Security**
+- **Network Policies**: Configured for Kafka and Redis access control
+- **RBAC**: ClusterRole and ClusterRoleBinding for application permissions
+- **Service Accounts**: Dedicated service account for alert-engine application
+
+### 6. **End-to-End Validation**
+- **Log Flow**: Application → Vector → Kafka → Consumer ✅
+- **Test Data**: Realistic log messages with user_id, service, and sequence fields
+- **Kafka Consumer**: Successfully receiving and processing application logs
+- **Redis Connectivity**: Verified with connection tests and module support
+
+**🎉 Infrastructure Ready for Alert Engine Deployment**
+
+All components are configured, tested, and validated. The alert-engine application can now be deployed using the provided connection details and service account. The infrastructure provides:
+- **Scalable log ingestion** via Kafka
+- **High-performance caching** via Redis Enterprise
+- **Secure network access** via network policies
+- **Proper RBAC** for application deployment
+- **Validated end-to-end flow** for reliable operation
+
+**Next Steps:**
+1. Update `configs/config.yaml` with the connection details above
+2. Deploy alert-engine application using `deployments/openshift/` manifests
+3. Configure alert rules and notification channels
+4. Set up monitoring and observability
+
+## 4. Next Steps
 
 After completing this infrastructure setup:
 
@@ -2137,7 +2302,7 @@ After completing this infrastructure setup:
 3. **Configure Monitoring**: Set up Prometheus monitoring for the Alert Engine metrics
 4. **Test End-to-End**: Generate test logs and verify alerts are triggered and notifications are sent
 
-## Troubleshooting
+## 5. Troubleshooting
 
 ### Common Issues
 
@@ -2239,7 +2404,7 @@ oc logs -f deployment/redis-enterprise-operator -n redis-enterprise
 oc logs -f daemonset/collector -n openshift-logging
 ```
 
-## Configuration Updates
+## 6. Configuration Updates
 
 Once the infrastructure is deployed, update your Alert Engine configuration file (`configs/config.yaml`) with the actual connection details:
 
