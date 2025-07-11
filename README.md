@@ -103,7 +103,7 @@ Key infrastructure components to install (15-20 minutes total):
 
 **Complete the infrastructure setup before proceeding with the local development or deployment steps below.**
 
-## 🔧 Setup Instructions
+## 🔧 Setup Instructions [To be Updated]
 
 ### 1. Local Development Setup
 
