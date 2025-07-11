@@ -59,6 +59,20 @@ local-*.yaml
 # Coverage reports
 coverage.out
 coverage.html
+coverage.txt
+*.cover
+
+# Benchmark and profiling files
+*.bench
+*.prof
+*.pprof
+*.mem
+*.cpu
+
+# Test artifacts and temporary test files
+test-results/
+testdata/tmp/
+.test-cache/
 
 # Air live reload (if used)
 .air.toml
@@ -73,3 +87,6 @@ __debug_bin
 
 # Redis dump (if running locally)
 dump.rdb 
+
+#ide files
+.idea
