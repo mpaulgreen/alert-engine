@@ -1,4 +1,4 @@
-# Alert Engine - Phase 0: Foundation & Proof of Concept
+# Alert Engine - Phase 0: Foundation & Proof of Concept [In Progress]
 
 A Go-based alert engine for monitoring application logs in OpenShift environments with real-time alerting via Slack.
 
