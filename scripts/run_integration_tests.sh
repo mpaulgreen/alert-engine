@@ -125,10 +125,12 @@ run_integration_tests() {
         return 1
     fi
     
-    if go test -tags=integration -v ./internal/storage/tests/...; then
+    # Run storage integration tests using testcontainers (no external Redis needed)
+    if go test -tags=integration -v ./internal/storage/tests/... -timeout=5m; then
         print_status $GREEN "✅ Storage integration tests PASSED"
     else
-        print_status $YELLOW "⚠️  Storage integration tests not found or skipped"
+        print_status $RED "❌ Storage integration tests FAILED"
+        return 1
     fi
     
     if go test -tags=integration -v ./internal/api/tests/...; then
@@ -151,9 +153,9 @@ run_tests_in_container() {
             # Run integration tests
             go test -tags=integration -v ./internal/kafka/tests/...
             
-            # Run other integration tests if they exist
+            # Run storage integration tests (using testcontainers)
             if [ -d './internal/storage/tests' ]; then
-                go test -tags=integration -v ./internal/storage/tests/...
+                go test -tags=integration -v ./internal/storage/tests/... -timeout=5m
             fi
             
             if [ -d './internal/api/tests' ]; then
@@ -170,10 +172,18 @@ run_performance_tests() {
     export REDIS_ADDR="localhost:6380"
     export REDIS_PASSWORD="testpass"
     
+    # Run Kafka performance tests
     if go test -tags=integration -bench=. -benchmem ./internal/kafka/tests/...; then
-        print_status $GREEN "✅ Performance tests completed"
+        print_status $GREEN "✅ Kafka performance tests completed"
     else
-        print_status $YELLOW "⚠️  Performance tests not found or skipped"
+        print_status $YELLOW "⚠️  Kafka performance tests not found or skipped"
+    fi
+    
+    # Run Storage performance tests
+    if go test -tags=integration -bench=. -benchmem ./internal/storage/tests/... -timeout=10m; then
+        print_status $GREEN "✅ Storage performance tests completed"
+    else
+        print_status $YELLOW "⚠️  Storage performance tests not found or skipped"
     fi
 }
 
