@@ -1,0 +1,260 @@
+{
+  "matching_logs": [
+    {
+      "timestamp": "2024-01-15T10:30:45.123Z",
+      "level": "ERROR",
+      "message": "User authentication failed - invalid token provided",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "user-service-7b6f9c8d4-xyz12",
+        "container": "user-service",
+        "labels": {
+          "app": "user-service",
+          "version": "1.2.3",
+          "environment": "production"
+        }
+      },
+      "host": "worker-node-01"
+    },
+    {
+      "timestamp": "2024-01-15T10:31:00.456Z",
+      "level": "ERROR", 
+      "message": "Database connection failed - timeout after 30 seconds",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "database-service-5c6b7d8e9-abc34",
+        "container": "database-service",
+        "labels": {
+          "app": "database-service",
+          "version": "2.1.0",
+          "environment": "production"
+        }
+      },
+      "host": "worker-node-02"
+    },
+    {
+      "timestamp": "2024-01-15T10:32:15.789Z",
+      "level": "WARN",
+      "message": "High memory usage detected - 85% of available memory used",
+      "kubernetes": {
+        "namespace": "staging",
+        "pod": "api-service-1a2b3c4d5-efg67",
+        "container": "api-service",
+        "labels": {
+          "app": "api-service",
+          "version": "1.0.0",
+          "environment": "staging"
+        }
+      },
+      "host": "worker-node-03"
+    },
+    {
+      "timestamp": "2024-01-15T10:33:30.012Z",
+      "level": "ERROR",
+      "message": "Payment transaction failed - error processing credit card",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "payment-service-9x8y7z6w5-uvt43",
+        "container": "payment-service",
+        "labels": {
+          "app": "payment-service",
+          "version": "3.0.0",
+          "environment": "production"
+        }
+      },
+      "host": "worker-node-04"
+    },
+    {
+      "timestamp": "2024-01-15T10:34:45.345Z",
+      "level": "FATAL",
+      "message": "System fatal error - critical system failure detected",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "core-service-4d5e6f7g8-hij91",
+        "container": "core-service",
+        "labels": {
+          "app": "core-service",
+          "version": "4.0.0",
+          "environment": "production"
+        }
+      },
+      "host": "worker-node-05"
+    }
+  ],
+  "non_matching_logs": [
+    {
+      "timestamp": "2024-01-15T10:35:00.123Z",
+      "level": "INFO",
+      "message": "User successfully logged in",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "user-service-7b6f9c8d4-xyz12",
+        "container": "user-service",
+        "labels": {
+          "app": "user-service",
+          "version": "1.2.3",
+          "environment": "production"
+        }
+      },
+      "host": "worker-node-01"
+    },
+    {
+      "timestamp": "2024-01-15T10:35:30.456Z",
+      "level": "DEBUG",
+      "message": "Processing request for user ID: 12345",
+      "kubernetes": {
+        "namespace": "development",
+        "pod": "api-service-test-abc123",
+        "container": "api-service",
+        "labels": {
+          "app": "api-service",
+          "version": "0.9.0",
+          "environment": "development"
+        }
+      },
+      "host": "dev-node-01"
+    },
+    {
+      "timestamp": "2024-01-15T10:36:00.789Z",
+      "level": "ERROR",
+      "message": "Validation error - missing required field",
+      "kubernetes": {
+        "namespace": "development",
+        "pod": "validation-service-xyz789",
+        "container": "validation-service",
+        "labels": {
+          "app": "validation-service",
+          "version": "1.0.0",
+          "environment": "development"
+        }
+      },
+      "host": "dev-node-02"
+    }
+  ],
+  "batch_logs": [
+    {
+      "timestamp": "2024-01-15T11:00:00.000Z",
+      "level": "ERROR",
+      "message": "Batch processing error 1 - failed to process item",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "batch-service-111",
+        "container": "batch-service",
+        "labels": {
+          "app": "batch-service",
+          "environment": "production"
+        }
+      },
+      "host": "batch-node-01"
+    },
+    {
+      "timestamp": "2024-01-15T11:00:05.000Z",
+      "level": "ERROR",
+      "message": "Batch processing error 2 - failed to process item",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "batch-service-222",
+        "container": "batch-service",
+        "labels": {
+          "app": "batch-service",
+          "environment": "production"
+        }
+      },
+      "host": "batch-node-02"
+    },
+    {
+      "timestamp": "2024-01-15T11:00:10.000Z",
+      "level": "ERROR",
+      "message": "Batch processing error 3 - failed to process item",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "batch-service-333",
+        "container": "batch-service",
+        "labels": {
+          "app": "batch-service",
+          "environment": "production"
+        }
+      },
+      "host": "batch-node-03"
+    },
+    {
+      "timestamp": "2024-01-15T11:00:15.000Z",
+      "level": "INFO",
+      "message": "Batch processing completed successfully",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "batch-service-444",
+        "container": "batch-service",
+        "labels": {
+          "app": "batch-service",
+          "environment": "production"
+        }
+      },
+      "host": "batch-node-04"
+    }
+  ],
+  "edge_case_logs": [
+    {
+      "timestamp": "2024-01-15T12:00:00.000Z",
+      "level": "",
+      "message": "",
+      "kubernetes": {
+        "namespace": "",
+        "pod": "",
+        "container": "",
+        "labels": {}
+      },
+      "host": ""
+    },
+    {
+      "timestamp": "2024-01-15T12:01:00.000Z",
+      "level": "ERROR",
+      "message": "Very long error message that contains multiple keywords like failed, error, timeout, database, connection, and many other terms that might trigger various alert rules depending on configuration and threshold settings",
+      "kubernetes": {
+        "namespace": "production",
+        "pod": "long-message-service-xyz",
+        "container": "long-message-service",
+        "labels": {
+          "app": "long-message-service",
+          "version": "1.0.0",
+          "environment": "production",
+          "team": "platform",
+          "criticality": "high"
+        }
+      },
+      "host": "worker-node-special"
+    },
+    {
+      "timestamp": "2024-01-15T12:02:00.000Z",
+      "level": "ERROR",
+      "message": "Special characters test: !@#$%^&*()_+-=[]{}|;':\",./<>?`~",
+      "kubernetes": {
+        "namespace": "test",
+        "pod": "special-chars-test",
+        "container": "test-container",
+        "labels": {
+          "app": "test-service",
+          "test-type": "special-chars"
+        }
+      },
+      "host": "test-node"
+    }
+  ],
+  "performance_logs": [
+    {
+      "timestamp": "2024-01-15T13:00:00.000Z",
+      "level": "ERROR",
+      "message": "Performance test error 1",
+      "kubernetes": {
+        "namespace": "performance",
+        "pod": "perf-test-1",
+        "container": "perf-container",
+        "labels": {
+          "app": "perf-service",
+          "test": "load"
+        }
+      },
+      "host": "perf-node-1"
+    }
+  ]
+} 
