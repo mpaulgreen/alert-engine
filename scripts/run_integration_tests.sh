@@ -133,6 +133,14 @@ run_integration_tests() {
         return 1
     fi
     
+    # Run notifications integration tests using mock HTTP server (no external dependencies)
+    if go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m; then
+        print_status $GREEN "✅ Notifications integration tests PASSED"
+    else
+        print_status $RED "❌ Notifications integration tests FAILED"
+        return 1
+    fi
+    
     if go test -tags=integration -v ./internal/api/tests/...; then
         print_status $GREEN "✅ API integration tests PASSED"
     else
@@ -156,6 +164,11 @@ run_tests_in_container() {
             # Run storage integration tests (using testcontainers)
             if [ -d './internal/storage/tests' ]; then
                 go test -tags=integration -v ./internal/storage/tests/... -timeout=5m
+            fi
+            
+            # Run notifications integration tests (using mock HTTP server)
+            if [ -d './internal/notifications/tests' ]; then
+                go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m
             fi
             
             if [ -d './internal/api/tests' ]; then
@@ -184,6 +197,13 @@ run_performance_tests() {
         print_status $GREEN "✅ Storage performance tests completed"
     else
         print_status $YELLOW "⚠️  Storage performance tests not found or skipped"
+    fi
+    
+    # Run Notifications performance tests
+    if go test -tags=integration -bench=. -benchmem ./internal/notifications/tests/... -timeout=5m; then
+        print_status $GREEN "✅ Notifications performance tests completed"
+    else
+        print_status $YELLOW "⚠️  Notifications performance tests not found or skipped"
     fi
 }
 
