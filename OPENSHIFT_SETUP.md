@@ -2749,3 +2749,288 @@ kubernetes:
 ---
 
 **🎯 Infrastructure Setup Complete - Ready for Alert Engine Deployment!** 
+
+### Step 2.10: Troubleshooting Redis Enterprise Cluster Error State
+
+If your Redis Enterprise cluster shows "Error" state with no service endpoints, follow these steps:
+
+#### **Critical Fix 1: Update to Red Hat Certified Images**
+
+The most common cause of Redis Enterprise cluster errors in OpenShift is using Docker Hub images instead of Red Hat certified images.
+
+**Delete the existing cluster:**
+```bash
+# Delete the problematic cluster
+oc delete redisenterprisecluster rec-alert-engine -n redis-enterprise
+
+# Wait for complete deletion
+oc get pods -n redis-enterprise -w
+```
+
+**Recreate with Red Hat certified images:**
+```yaml
+cat <<EOF | oc apply -f -
+apiVersion: app.redislabs.com/v1
+kind: RedisEnterpriseCluster
+metadata:
+  name: rec-alert-engine
+  namespace: redis-enterprise
+spec:
+  nodes: 3
+  persistentSpec:
+    enabled: true
+    storageClassName: gp3-csi
+    volumeSize: 20Gi
+  redisEnterpriseNodeResources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  services:
+    riggerService:
+      serviceType: ClusterIP
+    apiService:
+      serviceType: ClusterIP
+  # CRITICAL: Use Red Hat certified images for OpenShift
+  bootstrapperImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
+    imagePullPolicy: IfNotPresent
+  redisEnterpriseServicesRiggerImageSpec:
+    repository: registry.connect.redhat.com/redislabs/services-manager
+    imagePullPolicy: IfNotPresent
+  redisEnterpriseImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise
+    imagePullPolicy: IfNotPresent
+EOF
+```
+
+#### **Critical Fix 2: Add Resource Limits and Anti-Affinity**
+
+Add pod anti-affinity and resource specifications:
+
+```yaml
+cat <<EOF | oc apply -f -
+apiVersion: app.redislabs.com/v1
+kind: RedisEnterpriseCluster
+metadata:
+  name: rec-alert-engine
+  namespace: redis-enterprise
+spec:
+  nodes: 3
+  persistentSpec:
+    enabled: true
+    storageClassName: gp3-csi
+    volumeSize: 20Gi
+  redisEnterpriseNodeResources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  # Add anti-affinity for better distribution
+  antiAffinityAdditionalPodAntiAffinity:
+  - labelSelector:
+      matchLabels:
+        app: redis-enterprise
+    topologyKey: kubernetes.io/hostname
+  services:
+    riggerService:
+      serviceType: ClusterIP
+    apiService:
+      serviceType: ClusterIP
+  # Use Red Hat certified images
+  bootstrapperImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
+    imagePullPolicy: IfNotPresent
+  redisEnterpriseServicesRiggerImageSpec:
+    repository: registry.connect.redhat.com/redislabs/services-manager
+    imagePullPolicy: IfNotPresent
+  redisEnterpriseImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise
+    imagePullPolicy: IfNotPresent
+EOF
+```
+
+#### **Critical Fix 3: Security Context Constraints Configuration**
+
+Ensure proper SCC configuration:
+
+```bash
+# Update Security Context Constraints for Redis Enterprise
+cat <<EOF | oc apply -f -
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: redis-enterprise-scc
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowedCapabilities:
+- SYS_RESOURCE
+defaultAddCapabilities: null
+requiredDropCapabilities:
+- KILL
+- MKNOD
+- SETUID
+- SETGID
+runAsUser:
+  type: MustRunAsRange
+  uidRangeMin: 1000
+  uidRangeMax: 2000
+seLinuxContext:
+  type: MustRunAs
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+volumes:
+- configMap
+- downwardAPI
+- emptyDir
+- persistentVolumeClaim
+- projected
+- secret
+EOF
+
+# Apply SCC to service accounts
+oc adm policy add-scc-to-user redis-enterprise-scc -z redis-enterprise-operator -n redis-enterprise
+oc adm policy add-scc-to-user redis-enterprise-scc -z rec-alert-engine -n redis-enterprise
+```
+
+#### **Critical Fix 4: Cluster Recreation with Validation**
+
+Complete cluster recreation process:
+
+```bash
+# Step 1: Complete cleanup
+oc delete redisenterprisecluster rec-alert-engine -n redis-enterprise
+oc delete redisenterprisedatabase alert-engine-cache -n redis-enterprise
+
+# Step 2: Wait for complete deletion
+echo "Waiting for complete cleanup..."
+while oc get pods -n redis-enterprise | grep -q "rec-alert-engine"; do
+  echo "Waiting for pod cleanup..."
+  sleep 10
+done
+
+# Step 3: Recreate with corrected configuration
+cat <<EOF | oc apply -f -
+apiVersion: app.redislabs.com/v1
+kind: RedisEnterpriseCluster
+metadata:
+  name: rec-alert-engine
+  namespace: redis-enterprise
+spec:
+  nodes: 3
+  persistentSpec:
+    enabled: true
+    storageClassName: gp3-csi
+    volumeSize: 20Gi
+  redisEnterpriseNodeResources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  # CRITICAL: Use Red Hat certified images
+  bootstrapperImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
+    imagePullPolicy: IfNotPresent
+  redisEnterpriseServicesRiggerImageSpec:
+    repository: registry.connect.redhat.com/redislabs/services-manager
+    imagePullPolicy: IfNotPresent
+  redisEnterpriseImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise
+    imagePullPolicy: IfNotPresent
+  services:
+    riggerService:
+      serviceType: ClusterIP
+    apiService:
+      serviceType: ClusterIP
+EOF
+
+# Step 4: Monitor cluster creation
+echo "Monitoring cluster creation..."
+watch -n 10 'oc get redisenterprisecluster rec-alert-engine -n redis-enterprise && echo "" && oc get pods -n redis-enterprise'
+```
+
+#### **Alternative Fix: Use OpenShift-Specific Configuration**
+
+If the above fixes don't work, try this OpenShift-optimized configuration:
+
+```yaml
+cat <<EOF | oc apply -f -
+apiVersion: app.redislabs.com/v1
+kind: RedisEnterpriseCluster
+metadata:
+  name: rec-alert-engine
+  namespace: redis-enterprise
+spec:
+  nodes: 3
+  persistentSpec:
+    enabled: true
+    storageClassName: gp3-csi
+    volumeSize: 20Gi
+  redisEnterpriseNodeResources:
+    limits:
+      cpu: 1000m      # Reduced CPU limits
+      memory: 2Gi     # Reduced memory limits
+    requests:
+      cpu: 500m       # Reduced CPU requests
+      memory: 1Gi     # Reduced memory requests
+  # OpenShift-specific configuration
+  enforceIPv4: true
+  services:
+    riggerService:
+      serviceType: ClusterIP
+    apiService:
+      serviceType: ClusterIP
+  # Use Red Hat certified images
+  bootstrapperImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
+    imagePullPolicy: IfNotPresent
+  redisEnterpriseServicesRiggerImageSpec:
+    repository: registry.connect.redhat.com/redislabs/services-manager
+    imagePullPolicy: IfNotPresent
+  redisEnterpriseImageSpec:
+    repository: registry.connect.redhat.com/redislabs/redis-enterprise
+    imagePullPolicy: IfNotPresent
+EOF
+```
+
+#### **Validation After Fix**
+
+After recreating the cluster, run this validation:
+
+```bash
+# Wait for cluster to reach Running state
+echo "Waiting for cluster to reach Running state..."
+while true; do
+  STATUS=$(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}' 2>/dev/null)
+  if [[ "$STATUS" == "Running" ]]; then
+    echo "✅ Cluster is now Running!"
+    break
+  elif [[ "$STATUS" == "Error" ]]; then
+    echo "❌ Cluster is still in Error state"
+    break
+  else
+    echo "⏳ Current state: $STATUS"
+    sleep 30
+  fi
+done
+
+# Check service endpoints
+echo "Checking service endpoints..."
+oc get endpoints -n redis-enterprise
+
+# Check pod readiness
+echo "Checking pod readiness..."
+oc get pods -n redis-enterprise
+```
