@@ -2,6 +2,37 @@
 
 This guide provides step-by-step instructions to set up the required infrastructure components on OpenShift before deploying the Alert Engine application.
 
+## 📋 Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Overview](#overview)
+3. [Expected Deployment Times](#-expected-deployment-times)
+4. [Step 1: Kafka Setup using Red Hat AMQ Streams](#1-kafka-setup-using-red-hat-amq-streams)
+   - [1.1: Install AMQ Streams Operator](#step-11-install-amq-streams-operator)
+   - [1.2: Validate AMQ Streams Operator Installation](#step-12-validate-amq-streams-operator-installation)
+   - [1.3: Deploy Kafka Cluster](#step-13-deploy-kafka-cluster)
+   - [1.4: Create Kafka Topics](#step-14-create-kafka-topics)
+   - [1.5: Verify Kafka Installation](#step-15-verify-kafka-installation)
+   - [1.6: Test Kafka Producer-Consumer Flow](#step-16-test-kafka-producer-consumer-flow)
+   - [1.7: Create Kafka Network Policies](#step-17-create-kafka-network-policies)
+   - [1.8: Get Kafka Connection Details](#step-18-get-kafka-connection-details)
+5. [Step 2: Redis Cluster (HA) Setup](#2-redis-cluster-ha-setup)
+   - [2.1: Create Redis Cluster Namespace](#step-21-create-redis-cluster-namespace)
+   - [2.2: Deploy Redis Cluster](#step-22-deploy-redis-cluster)
+   - [2.3: Verify Redis Cluster Installation](#step-23-verify-redis-cluster-installation)
+   - [2.4: Test Redis Cluster Connectivity](#step-24-test-redis-cluster-connectivity)
+   - [2.5: Create Redis Network Policies](#step-25-create-redis-network-policies)
+   - [2.6: Get Redis Connection Details](#step-26-get-redis-connection-details)
+6. [Step 3: OpenShift Logging and Log Forwarding Setup](#3-openshift-logging-and-log-forwarding-setup)
+   - [3.1: Install OpenShift Logging Operator](#step-31-install-openshift-logging-operator)
+   - [3.2: Validate OpenShift Logging Operator Installation](#step-32-validate-openshift-logging-operator-installation)
+   - [3.3: Create Service Account and RBAC](#step-33-create-service-account-and-rbac)
+   - [3.4: Deploy ClusterLogForwarder](#step-34-deploy-clusterlogforwarder-corrected-configuration)
+   - [3.5: Deploy Test Application](#step-35-deploy-test-application-for-end-to-end-validation)
+   - [3.6: Execute End-to-End Validation](#step-36-execute-end-to-end-validation)
+7. [Complete Infrastructure Verification](#-complete-setup-validation-checklist)
+8. [Next Steps](#4-next-steps)
+
 ## Prerequisites
 
 - OpenShift 4.16.17 cluster with cluster-admin access
@@ -27,7 +58,7 @@ oc get storageclass gp3-csi && echo "✅ Storage class available" || echo "❌ U
 The Alert Engine requires the following components to be installed on OpenShift:
 
 1. **Red Hat AMQ Streams** (Apache Kafka) - For log message streaming
-2. **Redis Enterprise** - For state storage and caching
+2. **Redis Cluster (HA)** - For state storage and caching with high availability
 3. **ClusterLogForwarder** - For forwarding OpenShift logs to Kafka
 4. **Network policies and security configurations**
 
@@ -35,12 +66,11 @@ The Alert Engine requires the following components to be installed on OpenShift:
 
 - **AMQ Streams Operator**: 1-2 minutes
 - **Kafka Cluster**: 3-5 minutes  
-- **Redis Enterprise Operator**: 1-2 minutes
-- **Redis Enterprise Cluster**: 2-4 minutes
+- **Redis Cluster (HA)**: 2-3 minutes
 - **OpenShift Logging Operator**: 1-2 minutes
 - **ClusterLogForwarder + Vector**: 1-2 minutes for validation
 
-**Total Setup Time**: Approximately 15-20 minutes
+**Total Setup Time**: Approximately 10-15 minutes
 
 **💡 Tip**: Each section includes validation steps. Wait for each component to be fully ready before proceeding to the next step.
 
@@ -214,90 +244,13 @@ kafkaconnectors.kafka.strimzi.io
 kafkaconnects.kafka.strimzi.io
 kafkamirrormaker2s.kafka.strimzi.io
 kafkamirrormakers.kafka.strimzi.io
-kafkarebalances.kafka.strimzi.io
 kafkas.kafka.strimzi.io
 kafkatopics.kafka.strimzi.io
 kafkausers.kafka.strimzi.io
 strimzipodsets.core.strimzi.io
 ```
 
-
-#### Step 1.2.8: Troubleshooting Common Issues
-
-Based on real-world experience, here are the most common issues and their solutions:
-
-**Issue 1: Missing OperatorGroup (Most Common)**
-
-**Symptoms:**
-- Subscription exists but no CSV is created
-- No InstallPlan appears
-- No operator pods running
-
-**Diagnosis:**
-```bash
-# Check if OperatorGroup exists
-oc get operatorgroup -n amq-streams-kafka
-```
-
-**Solution:**
-```bash
-# Create the missing OperatorGroup
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: amq-streams-og
-  namespace: amq-streams-kafka
-spec:
-  targetNamespaces:
-  - amq-streams-kafka
-EOF
-```
-
-**Issue 2: API Resource Conflicts**
-
-**Symptoms:**
-- Error: `subscriptions.messaging.knative.dev "amq-streams" not found`
-
-**Solution:**
-```bash
-# Always use full API resource path
-oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka
-# NOT: oc get subscription amq-streams -n amq-streams-kafka
-```
-
-**Issue 3: Install Plan Not Progressing**
-
-**Diagnosis:**
-```bash
-# Check install plan details
-oc get installplan -n amq-streams-kafka -o yaml
-oc describe installplan -n amq-streams-kafka
-```
-
-**Solution:**
-```bash
-# If manual approval needed
-oc patch installplan <install-plan-name> -n amq-streams-kafka --type merge --patch '{"spec":{"approved":true}}'
-```
-
-**Issue 4: General Debugging**
-
-```bash
-# Check OperatorHub availability
-oc get catalogsource -n openshift-marketplace | grep redhat-operators
-
-# Check subscription conditions
-oc get subscriptions.operators.coreos.com amq-streams -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
-
-# Check events
-oc get events -n amq-streams-kafka --sort-by='.lastTimestamp'
-
-# Check package availability
-oc get packagemanifest amq-streams -n openshift-marketplace
-```
-
-#### Step 1.2.9: Quick One-Liner Validation
+#### Step 1.2.8: Quick One-Liner Validation
 
 For a quick final check, you can use this one-liner:
 
@@ -309,17 +262,6 @@ oc get csv -n amq-streams-kafka --no-headers | grep -q "Succeeded" && echo "✅ 
 ```
 ✅ AMQ Streams Operator Ready
 ```
-
-**Complete validation in one command:**
-```bash
-# Full validation check
-echo "Operator Status:" && oc get csv -n amq-streams-kafka | grep amq && echo "Pod Status:" && oc get pods -n amq-streams-kafka
-```
-
-**⚠️ Important**: Only proceed to the next step after confirming:
-- CSV shows `Phase: Succeeded`
-- Operator pod is `Running`
-- All CRDs are installed
 
 ### Step 1.3: Deploy Kafka Cluster
 
@@ -484,7 +426,7 @@ This step verifies that messages can be successfully sent and received through t
 
 ```bash
 # Send a test JSON message to the application-logs topic
-echo '{"timestamp":"2025-07-10T12:00:00Z","level":"INFO","message":"Test message from Kafka producer","service":"kafka-test","namespace":"test"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
+echo '{"timestamp":"2025-07-12T12:00:00Z","level":"INFO","message":"Test message from Kafka producer","service":"kafka-test","namespace":"test"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
 ```
 
 #### Step 1.6.2: Verify Message Reception
@@ -496,31 +438,9 @@ oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-co
 
 **Expected Output:**
 ```
-Defaulted container "kafka" out of: kafka, kafka-init (init)
-{"timestamp":"2025-07-10T12:00:00Z","level":"INFO","message":"Test message from Kafka producer","service":"kafka-test","namespace":"test"}
+{"timestamp":"2025-07-12T12:00:00Z","level":"INFO","message":"Test message from Kafka producer","service":"kafka-test","namespace":"test"}
 Processed a total of 1 messages
 ```
-
-#### Step 1.6.3: Complete Producer-Consumer Test
-
-```bash
-# Complete test in one command
-echo "=== Testing Kafka Producer-Consumer Flow ===" && \
-echo "1. Sending test message..." && \
-echo '{"timestamp":"'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'","level":"INFO","message":"Kafka test successful","service":"kafka-test","namespace":"test"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs && \
-echo "2. Verifying message reception..." && \
-oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 1
-```
-
-**✅ Success Criteria:**
-- Producer sends message without errors
-- Consumer receives and displays the JSON message
-- Message count shows "Processed a total of 1 messages"
-
-**Troubleshooting:**
-- If producer fails: Check Kafka cluster status and topic existence
-- If consumer hangs: Verify topic has messages with `oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-topics.sh --bootstrap-server localhost:9092 --topic application-logs --describe`
-- If no messages: Check producer succeeded and topic configuration
 
 ### Step 1.7: Create Kafka Network Policies
 
@@ -571,1293 +491,227 @@ oc get svc alert-kafka-cluster-kafka-bootstrap -n amq-streams-kafka -o jsonpath=
 echo ""
 ```
 
-**Common Issue: Version Compatibility**
+## 2. Redis Cluster (HA) Setup
 
-If the Kafka cluster shows `NotReady` status, check for version errors:
+This section sets up a highly available Redis cluster for the Alert Engine's state storage and caching needs.
 
-```bash
-# Check Kafka cluster conditions
-oc get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
-
-# Check operator logs for version errors
-oc logs deployment/amq-streams-cluster-operator-v2.9.1-0 -n amq-streams-kafka | grep -i "version\|error"
-```
-
-**Error Example:**
-```
-UnsupportedKafkaVersionException: Unsupported Kafka.spec.kafka.version: 3.7.0. 
-Supported versions are: [3.8.0, 3.9.0]
-```
-
-**Solution:** Update the Kafka version in your cluster specification to a supported version (3.9.0 recommended).
-
-## 2. Redis Setup using Redis Enterprise Operator
-
-### Step 2.1: Install Redis Enterprise Operator
-
-**Using OpenShift Web Console:**
-1. Navigate to **Operators > OperatorHub**
-2. Search for "**Redis Enterprise**"
-3. Select **Redis Enterprise Operator provided by Redis** (certified)
-4. Click **Install**
-5. Configure:
-   - **Installation Mode**: Install to specific namespace (create `redis-enterprise`)
-   - **Update Channel**: Production (NOT stable)
-   - **Update Approval**: Manual
-
-**Using CLI:**
-```bash
-# Create namespace
-oc create namespace redis-enterprise
-
-# Create OperatorGroup first (CRITICAL - prevents most installation issues)
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: redis-enterprise-og
-  namespace: redis-enterprise
-spec:
-  targetNamespaces:
-  - redis-enterprise
-EOF
-
-# Install Redis Enterprise Operator subscription
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: Subscription
-metadata:
-  name: redis-enterprise-operator
-  namespace: redis-enterprise
-spec:
-  channel: production  # Use 'production' NOT 'stable'
-  name: redis-enterprise-operator-cert
-  source: certified-operators
-  sourceNamespace: openshift-marketplace
-EOF
-```
-
-### Step 2.2: Validate Redis Enterprise Operator Installation
-
-After installing the Redis Enterprise operator, validate the installation:
-
-#### Step 2.2.1: Check Subscription Status
+### Step 2.1: Create Redis Cluster Namespace
 
 ```bash
-# Check the Subscription status (use full API resource to avoid conflicts)
-oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
-
-# Get detailed subscription info
-oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise -o yaml
+# Create namespace for Redis cluster
+oc create namespace redis-cluster
 ```
 
-**Expected Output:**
-```
-NAME                        PACKAGE                          SOURCE                CHANNEL
-redis-enterprise-operator   redis-enterprise-operator-cert   certified-operators   production
-```
+### Step 2.2: Deploy Redis Cluster
 
-#### Step 2.2.2: Check OperatorGroup (CRITICAL)
-
-```bash
-# Verify OperatorGroup exists
-oc get operatorgroup -n redis-enterprise
-```
-
-**Expected Output:**
-```
-NAME                 AGE
-redis-enterprise-og  2m
-```
-
-**⚠️ If no OperatorGroup exists, create it:**
-```bash
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: redis-enterprise-og
-  namespace: redis-enterprise
-spec:
-  targetNamespaces:
-  - redis-enterprise
-EOF
-```
-
-#### Step 2.2.3: Check InstallPlan
-
-```bash
-# Check InstallPlan creation and status
-oc get installplan -n redis-enterprise
-```
-
-**Expected Output:**
-```
-NAME            CSV                                      APPROVAL    APPROVED
-install-xxxxx   redis-enterprise-operator.v7.22.0-11.2   Automatic   true
-```
-
-#### Step 2.2.4: Check ClusterServiceVersion (CSV)
-
-```bash
-# Check CSV status
-oc get csv -n redis-enterprise
-
-# Get detailed CSV information
-oc get csv -n redis-enterprise -o wide
-```
-
-**Expected Output:**
-```
-NAME                                      DISPLAY                       VERSION         PHASE
-redis-enterprise-operator.v7.22.0-11.2   Redis Enterprise Operator    7.22.0-11.2     Succeeded
-```
-
-#### Step 2.2.5: Verify Operator Pod is Running
-
-```bash
-# Check operator pods
-oc get pods -n redis-enterprise
-
-# Check operator deployment
-oc get deployment -n redis-enterprise
-```
-
-**Expected Output:**
-```
-NAME                                       READY   STATUS    RESTARTS   AGE
-redis-enterprise-operator-6f95fb6b4f-97w6b   2/2     Running   0          2m
-```
-
-#### Step 2.2.6: Check Operator Logs
-
-```bash
-# Check operator logs for any issues
-oc logs deployment/redis-enterprise-operator -n redis-enterprise
-
-# Follow logs in real-time
-oc logs -f deployment/redis-enterprise-operator -n redis-enterprise
-```
-
-#### Step 2.2.7: Verify CRDs are Installed
-
-```bash
-# Check for Redis Enterprise CRDs
-oc get crd | grep redis
-
-# Check for Redis Enterprise specific CRDs
-oc get crd | grep redislabs
-```
-
-**Expected CRDs:**
-```
-redisenterpriseactiveactivedatabases.app.redislabs.com
-redisenterpriseclusters.app.redislabs.com
-redisenterprisedatabases.app.redislabs.com  
-redisenterpriseremoteclusters.app.redislabs.com
-```
-
-#### Step 2.2.8: Complete Validation Script
-
-Run this comprehensive validation script:
-
-```bash
-#!/bin/bash
-
-echo "=== Redis Enterprise Operator Validation ==="
-echo ""
-
-echo "1. Checking Subscription..."
-oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
-echo ""
-
-echo "2. Checking OperatorGroup..."
-oc get operatorgroup -n redis-enterprise
-echo ""
-
-echo "3. Checking InstallPlan..."
-oc get installplan -n redis-enterprise
-echo ""
-
-echo "4. Checking ClusterServiceVersion..."
-oc get csv -n redis-enterprise | grep redis
-echo ""
-
-echo "5. Checking Operator Pods..."
-oc get pods -n redis-enterprise
-echo ""
-
-echo "6. Checking CRDs..."
-echo "Redis Enterprise CRDs:"
-oc get crd | grep redislabs | head -4
-echo ""
-
-echo "7. Final Validation..."
-if oc get csv -n redis-enterprise --no-headers | grep redis | grep -q "Succeeded"; then
-    echo "✅ Redis Enterprise Operator is successfully installed!"
-    echo "Operator Version: $(oc get csv -n redis-enterprise --no-headers | grep redis | awk '{print $3}')"
-else
-    echo "❌ Redis Enterprise Operator installation failed or in progress"
-    echo "Troubleshooting required - check OperatorGroup, channel name, and InstallPlan status"
-fi
-echo ""
-```
-
-#### Step 2.2.9: Troubleshooting Common Issues
-
-Based on real-world experience, here are the most common issues and their solutions:
-
-**Issue 1: Missing OperatorGroup (Most Common)**
-
-**Symptoms:**
-- Subscription exists but no CSV is created
-- No InstallPlan appears
-- No operator pods running
-
-**Diagnosis:**
-```bash
-# Check if OperatorGroup exists
-oc get operatorgroup -n redis-enterprise
-```
-
-**Solution:**
-```bash
-# Create the missing OperatorGroup
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: redis-enterprise-og
-  namespace: redis-enterprise
-spec:
-  targetNamespaces:
-  - redis-enterprise
-EOF
-```
-
-**Issue 2: Incorrect Channel Name**
-
-**Symptoms:**
-- Subscription shows constraint error: "no operators found in channel stable"
-- CSV never gets created
-
-**Diagnosis:**
-```bash
-# Check available channels
-oc describe packagemanifest redis-enterprise-operator-cert -n openshift-marketplace | grep "Name:" | grep -A 5 -B 5 "Current CSV"
-
-# Check subscription status
-oc describe subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
-```
-
-**Solution:**
-```bash
-# Delete incorrect subscription
-oc delete subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
-
-# Create new subscription with correct channel
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: Subscription
-metadata:
-  name: redis-enterprise-operator
-  namespace: redis-enterprise
-spec:
-  channel: production  # Use 'production' NOT 'stable'
-  name: redis-enterprise-operator-cert
-  source: certified-operators
-  sourceNamespace: openshift-marketplace
-EOF
-```
-
-**Issue 3: API Resource Conflicts**
-
-**Symptoms:**
-- Error: `subscriptions.messaging.knative.dev "redis-enterprise-operator" not found`
-
-**Solution:**
-```bash
-# Always use full API resource path
-oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise
-# NOT: oc get subscription redis-enterprise-operator -n redis-enterprise
-```
-
-**Issue 4: General Debugging**
-
-```bash
-# Check package availability and channels
-oc get packagemanifest -n openshift-marketplace | grep redis
-oc describe packagemanifest redis-enterprise-operator-cert -n openshift-marketplace
-
-# Check subscription conditions
-oc get subscriptions.operators.coreos.com redis-enterprise-operator -n redis-enterprise -o jsonpath='{.status.conditions}' | jq .
-
-# Check events
-oc get events -n redis-enterprise --sort-by='.lastTimestamp'
-
-# Check OperatorHub availability
-oc get catalogsource -n openshift-marketplace | grep certified-operators
-```
-
-#### Step 2.2.10: Quick One-Liner Validation
-
-For a quick final check, you can use this one-liner:
-
-```bash
-oc get csv -n redis-enterprise --no-headers | grep redis | grep -q "Succeeded" && echo "✅ Redis Enterprise Operator Ready" || echo "❌ Installation Failed/In Progress"
-```
-
-**Expected Output when successful:**
-```
-✅ Redis Enterprise Operator Ready
-```
-
-**Complete validation in one command:**
-```bash
-# Full validation check
-echo "Operator Status:" && oc get csv -n redis-enterprise | grep redis && echo "Pod Status:" && oc get pods -n redis-enterprise
-```
-
-**⚠️ Important**: Only proceed to the next step after confirming:
-- CSV shows `Phase: Succeeded`
-- Operator pod is `Running` (2/2)
-- All CRDs are installed
-
-#### Step 2.2.11: Additional Validation Notes
-
-**Common Channel Names for Redis Enterprise:**
-- `production` (recommended, default)
-- `preview` (for testing new features)
-- Version-specific channels like `7.8.6`, `7.8.4`, etc.
-
-**DO NOT use `stable` - it doesn't exist for Redis Enterprise operator**
-
-**Expected final state:**
-```bash
-# All should show success
-oc get operatorgroup -n redis-enterprise    # Should show: redis-enterprise-og
-oc get installplan -n redis-enterprise      # Should show: install-xxxxx with Approved=true
-oc get csv -n redis-enterprise              # Should show: Phase=Succeeded
-oc get pods -n redis-enterprise             # Should show: Running 2/2
-```
-
-### Step 2.3: Create Security Context Constraints
+Deploy a highly available Redis cluster with 6 nodes (3 masters + 3 replicas):
 
 ```yaml
-cat <<EOF | oc apply -f -
-apiVersion: security.openshift.io/v1
-kind: SecurityContextConstraints
-metadata:
-  name: redis-enterprise-scc
-allowHostDirVolumePlugin: false
-allowHostIPC: false
-allowHostNetwork: false
-allowHostPID: false
-allowHostPorts: false
-allowPrivilegedContainer: false
-allowedCapabilities: null
-defaultAddCapabilities: null
-requiredDropCapabilities:
-- KILL
-- MKNOD
-- SETUID
-- SETGID
-runAsUser:
-  type: MustRunAsRange
-  uidRangeMin: 1000
-  uidRangeMax: 2000
-seLinuxContext:
-  type: MustRunAs
-fsGroup:
-  type: RunAsAny
-volumes:
-- configMap
-- downwardAPI
-- emptyDir
-- persistentVolumeClaim
-- projected
-- secret
-EOF
-
-# Bind SCC to service account
-oc adm policy add-scc-to-user redis-enterprise-scc -z redis-enterprise-operator -n redis-enterprise
-```
-
-### Step 2.4: Deploy Redis Enterprise Cluster
-
-**⚠️ Important**: Use Red Hat certified images for OpenShift compatibility.
-
-```yaml
-cat <<EOF | oc apply -f -
-apiVersion: app.redislabs.com/v1
-kind: RedisEnterpriseCluster
-metadata:
-  name: rec-alert-engine
-  namespace: redis-enterprise
-spec:
-  nodes: 3
-  persistentSpec:
-    enabled: true
-    storageClassName: gp3-csi  # Adjust based on your storage class
-    volumeSize: 20Gi
-  redisEnterpriseNodeResources:
-    limits:
-      cpu: 2000m
-      memory: 4Gi
-    requests:
-      cpu: 1000m
-      memory: 2Gi
-  services:
-    riggerService:
-      serviceType: ClusterIP
-    apiService:
-      serviceType: ClusterIP
-  # CRITICAL: Use Red Hat certified images for OpenShift
-  bootstrapperImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
-  redisEnterpriseServicesRiggerImageSpec:
-    repository: registry.connect.redhat.com/redislabs/services-manager
-  redisEnterpriseImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise
-    imagePullPolicy: IfNotPresent
-EOF
-```
-
-#### Step 2.4.1: Monitor Cluster Deployment
-
-Wait for the cluster to deploy completely:
-
-```bash
-# Monitor cluster status
-watch -n 10 'oc get redisenterprisecluster rec-alert-engine -n redis-enterprise'
-
-# Check pod status
-oc get pods -n redis-enterprise
-
-# Monitor cluster progression
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}'
-```
-
-**Expected States Progression:**
-1. `BootstrappingFirstPod` → `Initializing` → `Running`
-
-**Expected Final Output:**
-```
-NAME               NODES   SHARDS   VERSION     STATE     SPEC STATUS   LICENSE STATE   LICENSE EXPIRATION DATE   AGE
-rec-alert-engine   3       0/4      7.22.0-95   Running   Valid         Valid           2025-08-08T15:37:04Z      5m
-```
-
-#### Step 2.4.2: Troubleshooting Common Issues
-
-**Issue 1: Image Pull Errors**
-
-**Symptoms:**
-- Pods show `ImagePullBackOff` or `ErrImagePull`
-- Error: `manifest unknown` for Docker Hub images
-
-**Diagnosis:**
-```bash
-# Check pod errors
-oc describe pod rec-alert-engine-0 -n redis-enterprise
-```
-
-**Solution:**
-- Ensure you're using **Red Hat certified images** (see configuration above)
-- Delete and recreate cluster if using incorrect images:
-```bash
-oc delete redisenterprisecluster rec-alert-engine -n redis-enterprise
-# Then recreate with correct images
-```
-
-**Issue 2: Cluster Stuck in BootstrappingFirstPod**
-
-**Symptoms:**
-- Cluster state remains in `BootstrappingFirstPod` for > 10 minutes
-- Pods not reaching Running state
-
-**Diagnosis:**
-```bash
-# Check cluster events
-oc get events -n redis-enterprise --sort-by='.lastTimestamp'
-
-# Check pod logs
-oc logs rec-alert-engine-0 -c bootstrapper -n redis-enterprise
-```
-
-**Solution:**
-- Verify storage class exists and is accessible
-- Check node resources and scheduling constraints
-- Ensure Security Context Constraints are properly configured
-
-**Issue 3: License Issues**
-
-**Symptoms:**
-- License state shows as invalid or expired
-- Cluster fails to reach Running state
-
-**Diagnosis:**
-```bash
-# Check license status
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus}'
-```
-
-**Solution:**
-- Redis Enterprise operator includes a 30-day trial license
-- For production, obtain a proper license from Redis
-
-#### Step 2.4.3: Final Cluster Validation
-
-```bash
-#!/bin/bash
-
-echo "=== Redis Enterprise Cluster Validation ==="
-echo ""
-
-echo "1. Cluster Status:"
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise
-echo ""
-
-echo "2. Pod Status:"
-oc get pods -n redis-enterprise
-echo ""
-
-echo "3. License Status:"
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus.licenseState}'
-echo ""
-
-echo "4. Available Modules:"
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[*].name}'
-echo ""
-
-echo "5. Final Validation:"
-if [[ $(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}') == "Running" ]]; then
-    echo "✅ Redis Enterprise Cluster is Ready!"
-    echo "Available Shards: $(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus.shardsUsage}')"
-else
-    echo "❌ Redis Enterprise Cluster not ready - check troubleshooting steps above"
-fi
-echo ""
-```
-
-**Expected successful output:**
-```
-✅ Redis Enterprise Cluster is Ready!
-Available Shards: 0/4
-```
-
-### Step 2.5: Create Redis Database
-
-**⚠️ Important**: Wait for the Redis Enterprise Cluster to reach `Running` state before creating databases.
-
-#### Step 2.5.1: Check Available Modules and Versions
-
-Before creating the database, check what modules are available:
-
-```bash
-# Check available modules and versions
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[*]}'
-
-# Format for easier reading
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{range .status.modules[*]}{.name}: {.versions[0]}{"\n"}{end}'
-```
-
-**Expected Output:**
-```
-ReJSON: 2.8.8
-bf: 2.8.6
-search: 2.10.17
-timeseries: 1.12.6
-```
-
-#### Step 2.5.2: Create Database
-
-```yaml
-cat <<EOF | oc apply -f -
-apiVersion: app.redislabs.com/v1alpha1
-kind: RedisEnterpriseDatabase
-metadata:
-  name: alert-engine-cache
-  namespace: redis-enterprise
-spec:
-  memorySize: 1GB  # Use 1GB to avoid shard allocation issues
-  redisEnterpriseCluster:
-    name: rec-alert-engine
-  type: redis
-  persistence: aofEverySecond  # Use correct persistence value
-  redisModule:
-  - name: ReJSON
-    version: "2.8.8"          # Use available version
-  - name: timeseries          # Use 'timeseries' not 'RedisTimeSeries'
-    version: "1.12.6"         # Use available version
-EOF
-```
-
-#### Step 2.5.3: Monitor Database Creation
-
-```bash
-# Monitor database creation
-watch -n 5 'oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise'
-
-# Check database status
-oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
-```
-
-**Expected Output:**
-```
-NAME                 VERSION   PORT    CLUSTER            SHARDS   STATUS   SPEC STATUS   AGE
-alert-engine-cache   7.4.2     13066   rec-alert-engine   1        active   Valid         30s
-```
-
-#### Step 2.5.4: Troubleshooting Database Creation Issues
-
-**Issue 1: Cannot Allocate Nodes for Shards**
-
-**Symptoms:**
-- Error: `Cannot allocate nodes for shards`
-- Database creation fails
-
-**Diagnosis:**
-```bash
-# Check cluster shard usage
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus.shardsUsage}'
-
-# Check cluster resource limits
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.licenseStatus.shardsLimit}'
-```
-
-**Solution:**
-- Reduce memory size (try 1GB instead of 2GB)
-- Check if cluster has available shards
-- Verify cluster is in `Running` state
-
-**Issue 2: Invalid Persistence Value**
-
-**Symptoms:**
-- Error: `Unsupported value: "aof"`
-- Database validation fails
-
-**Valid persistence values:**
-- `disabled`
-- `aofEverySecond` (recommended)
-- `aofAlways`
-- `snapshotEvery1Hour`
-- `snapshotEvery6Hour`
-- `snapshotEvery12Hour`
-
-**Issue 3: Module Version Errors**
-
-**Symptoms:**
-- Module version not available
-- Database creation fails
-
-**Solution:**
-```bash
-# Check available module versions
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[?(@.name=="ReJSON")].versions[*]}'
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[?(@.name=="timeseries")].versions[*]}'
-```
-
-**Issue 4: Cluster Not Ready**
-
-**Symptoms:**
-- Error: `could not get cluster object`
-- Connection refused errors
-
-**Solution:**
-```bash
-# Verify cluster is running
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise
-
-# Wait for cluster to be ready
-until [[ $(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}') == "Running" ]]; do
-  echo "Waiting for cluster to be ready..."
-  sleep 10
-done
-```
-
-#### Step 2.5.5: Database Validation Script
-
-```bash
-#!/bin/bash
-
-echo "=== Redis Enterprise Database Validation ==="
-echo ""
-
-echo "1. Cluster Status:"
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise
-echo ""
-
-echo "2. Database Status:"
-oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
-echo ""
-
-echo "3. Connection Information:"
-DATABASE_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.redisEnterpriseCluster}')
-echo "Database Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
-echo ""
-
-echo "4. Final Validation:"
-if [[ $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.status}') == "active" ]]; then
-    echo "✅ Redis Enterprise Database is Ready!"
-    echo "Connection Details:"
-    echo "  - Name: alert-engine-cache"
-    echo "  - Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
-    echo "  - Modules: ReJSON, RedisTimeSeries"
-    echo "  - Persistence: AOF Every Second"
-else
-    echo "❌ Redis Enterprise Database not ready - check troubleshooting steps above"
-fi
-echo ""
-```
-
-**Expected successful output:**
-```
-✅ Redis Enterprise Database is Ready!
-Connection Details:
-  - Name: alert-engine-cache
-  - Port: 13066
-  - Modules: ReJSON, RedisTimeSeries
-  - Persistence: AOF Every Second
-```
-
-### Step 2.6: Verify Redis Installation
-
-```bash
-# Check Redis cluster status
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise
-
-# Check Redis database
-oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
-
-# Check pods
-oc get pods -n redis-enterprise
-
-# Get Redis connection info
-oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d
-echo  # Add newline after password
-
-# Get database port
-oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}'
-echo  # Add newline after port
-
-# Get full connection string
-echo "Connection details:"
-echo "Host: rec-alert-engine.redis-enterprise.svc.cluster.local"
-echo "Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
-echo "Password: $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d)"
-```
-
-#### Step 2.6.1: Test Redis Connection
-
-```bash
-# Test Redis connection from within the cluster
-oc run redis-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h rec-alert-engine.redis-enterprise.svc.cluster.local -p $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}') -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d)
-```
-
-#### Step 2.6.2: Create ConfigMap for Application
-
-Create a ConfigMap with Redis connection details for your applications:
-
-**First, get the current database port (with proper error handling):**
-```bash
-# Get the actual database port with multiple attempts
-echo "🔍 Discovering Redis database port..."
-REDIS_PORT=""
-for i in {1..5}; do
-    REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null)
-    if [[ -n "$REDIS_PORT" ]]; then
-        echo "✅ Found Redis database port: $REDIS_PORT"
-        break
-    else
-        echo "⏳ Waiting for database port... (attempt $i/5)"
-        sleep 10
-    fi
-done
-
-# Fallback port discovery methods
-if [[ -z "$REDIS_PORT" ]]; then
-    echo "🔍 Trying alternative port discovery methods..."
-    # Try internal endpoints
-    REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.internalEndpoints[0].port}' 2>/dev/null)
-    
-    # Try service port
-    if [[ -z "$REDIS_PORT" ]]; then
-        REDIS_PORT=$(oc get service alert-engine-cache -n redis-enterprise -o jsonpath='{.spec.ports[0].port}' 2>/dev/null)
-    fi
-fi
-
-# Final validation
-if [[ -z "$REDIS_PORT" ]]; then
-    echo "❌ Could not determine Redis port. Check database status:"
-    oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
-    exit 1
-else
-    echo "✅ Using Redis port: $REDIS_PORT"
-fi
-```
-
-**Create the ConfigMap with dynamically discovered values:**
-```bash
-# Create namespace if it doesn't exist
-oc create namespace alert-engine --dry-run=client -o yaml | oc apply -f -
-
-# Create ConfigMap with dynamically discovered Redis connection details
 cat <<EOF | oc apply -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: redis-config
-  namespace: alert-engine
+  name: redis-cluster-config
+  namespace: redis-cluster
 data:
-  # Use the database service name, not the cluster service
-  redis-host: "alert-engine-cache.redis-enterprise.svc.cluster.local"
-  redis-port: "${REDIS_PORT}"
-  redis-database: "alert-engine-cache"
-  # Alternative internal endpoint (more reliable for enterprise features)
-  redis-internal-host: "redis-${REDIS_PORT}.rec-alert-engine.redis-enterprise.svc.cluster.local"
-  # Cluster information
-  redis-cluster: "rec-alert-engine"
-  redis-namespace: "redis-enterprise"
-  # Secret reference for password
-  redis-secret-name: "redb-alert-engine-cache"
-EOF
-
-echo "✅ ConfigMap created with Redis port: ${REDIS_PORT}"
-```
-
-**Create a Secret reference for the password:**
-```yaml
-# Option 1: Copy the password to your application namespace
-oc get secret redb-alert-engine-cache -n redis-enterprise -o yaml | \
-  sed 's/namespace: redis-enterprise/namespace: alert-engine/' | \
-  oc apply -f -
-
-# Option 2: Create a new secret with just the password
-cat <<EOF | oc apply -f -
+  redis.conf: |
+    cluster-enabled yes
+    cluster-require-full-coverage no
+    cluster-node-timeout 15000
+    cluster-config-file /data/nodes.conf
+    cluster-migration-barrier 1
+    appendonly yes
+    protected-mode no
+    bind 0.0.0.0
+    port 6379
+    tcp-keepalive 60
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+---
 apiVersion: v1
-kind: Secret
+kind: Service
 metadata:
-  name: redis-password
-  namespace: alert-engine
-type: Opaque
+  name: redis-cluster
+  namespace: redis-cluster
+  labels:
+    app: redis-cluster
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: client
+  - port: 16379
+    targetPort: 16379
+    name: gossip
+  clusterIP: None
+  selector:
+    app: redis-cluster
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: redis-cluster
+spec:
+  serviceName: redis-cluster
+  replicas: 6
+  selector:
+    matchLabels:
+      app: redis-cluster
+  template:
+    metadata:
+      labels:
+        app: redis-cluster
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.0-alpine
+        ports:
+        - containerPort: 6379
+          name: client
+        - containerPort: 16379
+          name: gossip
+        command: ["/conf/update-node.sh", "redis-server", "/conf/redis.conf"]
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        volumeMounts:
+        - name: conf
+          mountPath: /conf
+          readOnly: false
+        - name: data
+          mountPath: /data
+          readOnly: false
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: conf
+        configMap:
+          name: redis-cluster-config
+          defaultMode: 0755
+          items:
+          - key: redis.conf
+            path: redis.conf
+          - key: update-node.sh
+            path: update-node.sh
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: gp3-csi
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-cluster-config
+  namespace: redis-cluster
 data:
-  password: $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}')
+  update-node.sh: |
+    #!/bin/sh
+    REDIS_NODES="/data/nodes.conf"
+    sed -i -e "/myself/ s/[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/${POD_IP}/" ${REDIS_NODES}
+    exec "$@"
+  redis.conf: |
+    cluster-enabled yes
+    cluster-require-full-coverage no
+    cluster-node-timeout 15000
+    cluster-config-file /data/nodes.conf
+    cluster-migration-barrier 1
+    appendonly yes
+    protected-mode no
+    bind 0.0.0.0
+    port 6379
+    tcp-keepalive 60
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
 EOF
 ```
 
-**Verify the ConfigMap:**
-```bash
-# Check ConfigMap contents
-oc get configmap redis-config -n alert-engine -o yaml
+**Wait for Redis cluster pods to be ready:**
 
-# Test the connection details
-echo "Redis connection details:"
-echo "Host: $(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-host}')"
-echo "Port: $(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-port}')"
-echo "Password: $(oc get secret redis-password -n alert-engine -o jsonpath='{.data.password}' | base64 -d)"
+```bash
+# Wait for all Redis cluster pods to be running
+oc wait --for=condition=ready pod -l app=redis-cluster -n redis-cluster --timeout=300s
+
+# Check pod status
+oc get pods -n redis-cluster -l app=redis-cluster
 ```
 
-**Test Redis Connection (Enhanced with Better Error Handling):**
+### Step 2.3: Verify Redis Cluster Installation
+
+**Initialize the Redis cluster:**
+
 ```bash
-# Get connection details first
-REDIS_HOST=$(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-host}')
-REDIS_PORT=$(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-port}')
-REDIS_PASSWORD=$(oc get secret redis-password -n alert-engine -o jsonpath='{.data.password}' | base64 -d)
+# Get the Redis cluster nodes
+REDIS_NODES=$(oc get pods -l app=redis-cluster -n redis-cluster -o jsonpath='{range.items[*]}{.status.podIP}:6379 ')
 
-echo "🔍 Testing Redis connection to $REDIS_HOST:$REDIS_PORT"
+# Initialize the cluster
+oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli --cluster create --cluster-replicas 1 $REDIS_NODES --cluster-yes
 
-# Test 1: Basic connection with ping
-echo "1. Testing basic Redis connection..."
-PING_RESULT=$(oc run redis-connection-test --rm -i --image=redis:7 --restart=Never -- \
-  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping 2>/dev/null)
-
-if [[ "$PING_RESULT" == "PONG" ]]; then
-    echo "   ✅ Basic Redis connection successful"
-else
-    echo "   ❌ Basic Redis connection failed: $PING_RESULT"
-    echo "   🔧 Troubleshooting: Check host, port, and password"
-    exit 1
-fi
-
-# Test 2: ReJSON module (with better error handling)
-echo "2. Testing ReJSON module..."
-JSON_SET_RESULT=$(oc run redis-json-test --rm -i --image=redis:7 --restart=Never -- \
-  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  JSON.SET test:config '$' '{"app":"alert-engine","status":"ready","timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' 2>/dev/null)
-
-if [[ "$JSON_SET_RESULT" == "OK" ]]; then
-    echo "   ✅ ReJSON SET operation successful"
-    
-    # Verify ReJSON data
-    JSON_GET_RESULT=$(oc run redis-json-verify --rm -i --image=redis:7 --restart=Never -- \
-      redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-      JSON.GET test:config 2>/dev/null)
-    
-    if [[ -n "$JSON_GET_RESULT" && "$JSON_GET_RESULT" != "(nil)" ]]; then
-        echo "   ✅ ReJSON GET operation successful"
-        echo "   📄 Retrieved data: $JSON_GET_RESULT"
-    else
-        echo "   ⚠️ ReJSON GET operation failed or returned empty result"
-        echo "   🔧 This may indicate module access issues, but basic functionality works"
-    fi
-else
-    echo "   ❌ ReJSON SET operation failed: $JSON_SET_RESULT"
-    echo "   🔧 Troubleshooting: Check if ReJSON module is properly loaded"
-    
-    # Try alternative ReJSON test
-    echo "   🔄 Trying alternative ReJSON test..."
-    ALT_JSON_RESULT=$(oc run redis-json-alt-test --rm -i --image=redis:7 --restart=Never -- \
-      redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-      SET test:simple-json '{"test":"value"}' 2>/dev/null)
-    
-    if [[ "$ALT_JSON_RESULT" == "OK" ]]; then
-        echo "   ✅ Alternative JSON storage works (using SET command)"
-        echo "   📝 Note: ReJSON module may have access issues but basic Redis functionality confirmed"
-    else
-        echo "   ❌ Alternative JSON test also failed"
-    fi
-fi
-
-# Test 3: RedisTimeSeries module (with better error handling)
-echo "3. Testing RedisTimeSeries module..."
-CURRENT_TIME=$(date +%s)
-TS_CREATE_RESULT=$(oc run redis-ts-test --rm -i --image=redis:7 --restart=Never -- \
-  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  TS.CREATE test:metrics LABELS metric_type test 2>/dev/null)
-
-if [[ "$TS_CREATE_RESULT" == "OK" ]]; then
-    echo "   ✅ RedisTimeSeries CREATE operation successful"
-    
-    # Add a test time series value
-    TS_ADD_RESULT=$(oc run redis-ts-add --rm -i --image=redis:7 --restart=Never -- \
-      redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-      TS.ADD test:metrics "$CURRENT_TIME" 42.5 2>/dev/null)
-    
-    if [[ -n "$TS_ADD_RESULT" ]]; then
-        echo "   ✅ RedisTimeSeries ADD operation successful"
-        echo "   📊 Added timestamp: $CURRENT_TIME, value: 42.5"
-    else
-        echo "   ⚠️ RedisTimeSeries ADD operation had issues"
-    fi
-else
-    echo "   ❌ RedisTimeSeries CREATE operation failed: $TS_CREATE_RESULT"
-    echo "   🔧 Troubleshooting: Check if RedisTimeSeries module is properly loaded"
-fi
-
-# Test 4: Module availability check
-echo "4. Checking loaded modules..."
-MODULES_RESULT=$(oc run redis-modules-check --rm -i --image=redis:7 --restart=Never -- \
-  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  MODULE LIST 2>/dev/null)
-
-if [[ -n "$MODULES_RESULT" ]]; then
-    echo "   ✅ Module list retrieved successfully"
-    echo "   📋 Loaded modules: $MODULES_RESULT"
-else
-    echo "   ⚠️ Could not retrieve module list"
-fi
-
-# Cleanup test keys
-echo "5. Cleaning up test data..."
-oc run redis-cleanup --rm -i --image=redis:7 --restart=Never -- \
-  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  DEL test:config test:simple-json test:metrics >/dev/null 2>&1
-
-echo "✅ Redis connection testing completed"
+# Verify cluster status
+oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli cluster info
+oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli cluster nodes
 ```
 
 **Expected Output:**
 ```
-🔍 Testing Redis connection to alert-engine-cache.redis-enterprise.svc.cluster.local:13261
-1. Testing basic Redis connection...
-   ✅ Basic Redis connection successful
-2. Testing ReJSON module...
-   ✅ ReJSON SET operation successful
-   ✅ ReJSON GET operation successful
-   📄 Retrieved data: {"app":"alert-engine","status":"ready","timestamp":"2025-01-XX..."}
-3. Testing RedisTimeSeries module...
-   ✅ RedisTimeSeries CREATE operation successful
-   ✅ RedisTimeSeries ADD operation successful
-   📊 Added timestamp: 1706123456, value: 42.5
-4. Checking loaded modules...
-   ✅ Module list retrieved successfully
-   📋 Loaded modules: [ReJSON, timeseries, ...]
-5. Cleaning up test data...
-✅ Redis connection testing completed
+cluster_state:ok
+cluster_slots_assigned:16384
+cluster_slots_ok:16384
+cluster_slots_pfail:0
+cluster_slots_fail:0
+cluster_known_nodes:6
+cluster_size:3
 ```
 
-**⚠️ If ReJSON module access issues occur (as identified in execution):**
-```
-🔍 Testing Redis connection to alert-engine-cache.redis-enterprise.svc.cluster.local:13261
-1. Testing basic Redis connection...
-   ✅ Basic Redis connection successful
-2. Testing ReJSON module...
-   ❌ ReJSON SET operation failed: (error) ERR unknown command 'JSON.SET'
-   🔧 Troubleshooting: Check if ReJSON module is properly loaded
-   🔄 Trying alternative ReJSON test...
-   ✅ Alternative JSON storage works (using SET command)
-   📝 Note: ReJSON module may have access issues but basic Redis functionality confirmed
-3. Testing RedisTimeSeries module...
-   ✅ RedisTimeSeries CREATE operation successful
-   ✅ RedisTimeSeries ADD operation successful
-   📊 Added timestamp: 1706123456, value: 42.5
-4. Checking loaded modules...
-   ✅ Module list retrieved successfully
-   📋 Loaded modules: [timeseries, ...]
-5. Cleaning up test data...
-✅ Redis connection testing completed
-```
+### Step 2.4: Test Redis Cluster Connectivity
 
-**🔧 Troubleshooting ReJSON Module Issues:**
-If ReJSON module access fails but basic Redis works, this indicates the module is installed but may have access configuration issues. The Alert Engine can still function using standard Redis commands for JSON storage as a fallback.
-
-#### Step 2.6.3: Complete Redis Enterprise Verification
-
-Run this comprehensive verification to ensure all components are working correctly:
+Test that the Redis cluster is working correctly:
 
 ```bash
-# Complete Redis Enterprise verification
-echo "=== Redis Enterprise Complete Verification ===" && \
-echo "1. Cluster Status:" && \
-oc get redisenterprisecluster rec-alert-engine -n redis-enterprise && \
-echo "" && \
-echo "2. Database Status:" && \
-oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise && \
-echo "" && \
-echo "3. Pod Status:" && \
-oc get pods -n redis-enterprise && \
-echo "" && \
-echo "4. Service Status:" && \
-oc get svc -n redis-enterprise && \
-echo "" && \
-echo "5. Connection Test:" && \
-REDIS_PASSWORD=$(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d 2>/dev/null) && \
-REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null) && \
-if [[ -n "$REDIS_PASSWORD" && -n "$REDIS_PORT" ]]; then \
-    PING_RESULT=$(oc run redis-connection-test --rm -i --image=redis:7 --restart=Never -- redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping 2>/dev/null); \
-    if [[ "$PING_RESULT" == "PONG" ]]; then \
-        echo "✅ Redis connection successful (port: $REDIS_PORT)"; \
-    else \
-        echo "❌ Redis connection failed: $PING_RESULT"; \
-    fi; \
-else \
-    echo "❌ Could not retrieve Redis connection details"; \
-fi
+# Test Redis cluster connectivity and data replication
+oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli -c set test-key "Hello Redis Cluster"
+oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli -c get test-key
+
+# Test from different nodes
+oc exec -it redis-cluster-1 -n redis-cluster -- redis-cli -c get test-key
+oc exec -it redis-cluster-2 -n redis-cluster -- redis-cli -c get test-key
+
+# Clean up test data
+oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli -c del test-key
 ```
 
 **Expected Output:**
 ```
-=== Redis Enterprise Complete Verification ===
-1. Cluster Status:
-NAME               NODES   SHARDS   VERSION     STATE     SPEC STATUS   LICENSE STATE   LICENSE EXPIRATION DATE   AGE
-rec-alert-engine   3       1/4      7.22.0-95   Running   Valid         Valid           2025-08-09T13:08:06Z      6m32s
-
-2. Database Status:
-NAME                 VERSION   PORT    CLUSTER            SHARDS   STATUS   SPEC STATUS   AGE
-alert-engine-cache   7.4.2     13261   rec-alert-engine   1        active   Valid         2m28s
-
-3. Pod Status:
-NAME                                                READY   STATUS    RESTARTS   AGE
-rec-alert-engine-0                                  2/2     Running   0          6m31s
-rec-alert-engine-1                                  2/2     Running   0          6m31s
-rec-alert-engine-2                                  2/2     Running   0          6m31s
-rec-alert-engine-services-rigger-6995788557-x4kdp   1/1     Running   0          6m32s
-redis-enterprise-operator-86bfddd997-xzgnn          2/2     Running   0          8m5s
-
-4. Service Status:
-NAME                                TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE
-alert-engine-cache                  ClusterIP   172.30.71.138   <none>        13261/TCP           93s
-alert-engine-cache-headless         ClusterIP   None            <none>        13261/TCP           93s
-rec-alert-engine                    ClusterIP   172.30.127.47   <none>        9443/TCP,8001/TCP   5m38s
-
-5. Connection Test:
-Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe.
-PONG
+Hello Redis Cluster
 ```
 
-**✅ Success Criteria:**
-- Cluster STATE shows "Running"
-- Database STATUS shows "active"
-- All pods show "Running" status
-- Connection test returns "PONG"
-- ReJSON and RedisTimeSeries modules are accessible (or fallback methods work)
-
-#### Step 2.6.4: Troubleshooting Common Connection Issues
-
-**Issue 1: ReJSON Module Access Problems (Identified During Execution)**
-
-**Symptoms:**
-- Basic Redis connection works (PONG successful)
-- ReJSON commands fail with `ERR unknown command 'JSON.SET'`
-- Alternative JSON storage (SET command) works
-
-**Root Cause:**
-- ReJSON module is installed but may have configuration/access issues
-- Module loading order or permissions may be affecting access
-
-**Diagnosis:**
-```bash
-# Check if ReJSON module is loaded
-oc run redis-module-check --rm -i --image=redis:7 --restart=Never -- \
-  redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  MODULE LIST
-
-# Check database configuration
-oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o yaml | grep -A 5 redisModule
-```
-
-**Solution:**
-1. **Verify module versions are compatible:**
-   ```bash
-   # Check available modules and versions
-   oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[*]}'
-   ```
-
-2. **Use fallback approach for JSON storage:**
-   ```bash
-   # Alert Engine can use standard Redis commands for JSON storage
-   # SET/GET commands work as fallback for ReJSON functionality
-   ```
-
-3. **Database recreation if needed:**
-   ```bash
-   # If ReJSON access is critical, recreate database
-   oc delete redisenterprisedatabase alert-engine-cache -n redis-enterprise
-   # Wait for deletion, then recreate with Step 2.5 commands
-   ```
-
-**Issue 2: Dynamic Port Discovery Problems**
-
-**Symptoms:**
-- ConfigMap creation fails with empty port
-- Connection attempts use wrong port numbers
-- Services show different ports than expected
-
-**Diagnosis:**
-```bash
-# Check all available port information
-echo "Database Port:" && oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}'
-echo "Service Port:" && oc get service alert-engine-cache -n redis-enterprise -o jsonpath='{.spec.ports[0].port}'
-echo "Internal Endpoints:" && oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.internalEndpoints[*]}'
-```
-
-**Solution:**
-- Use the enhanced port discovery script from Step 2.6.2
-- Always validate port availability before creating ConfigMap
-- Use multiple discovery methods as fallback
-
-**Issue 3: Service Name Resolution**
-
-**Symptoms:**
-- Connection timeouts or DNS resolution failures
-- Services not accessible from alert-engine namespace
-
-**Diagnosis:**
-```bash
-# Test DNS resolution
-oc run dns-test --rm -i --image=busybox --restart=Never -- \
-  nslookup alert-engine-cache.redis-enterprise.svc.cluster.local
-
-# Check service endpoints
-oc get endpoints alert-engine-cache -n redis-enterprise
-```
-
-**Solution:**
-1. **Use FQDN for service names:**
-   ```bash
-   # Always use full service names
-   alert-engine-cache.redis-enterprise.svc.cluster.local
-   ```
-
-2. **Verify network policies allow access:**
-   ```bash
-   # Check network policy rules
-   oc get networkpolicy redis-network-policy -n redis-enterprise -o yaml
-   ```
-
-3. **Test connectivity from alert-engine namespace:**
-   ```bash
-   # Create test pod in alert-engine namespace
-   oc run connectivity-test --rm -i --image=redis:7 --restart=Never -n alert-engine -- \
-     redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping
-   ```
-
-**Issue 4: Password/Secret Access Problems**
-
-**Symptoms:**
-- Authentication failures
-- Secret not found errors
-- Base64 decoding issues
-
-**Diagnosis:**
-```bash
-# Check if secret exists
-oc get secret redb-alert-engine-cache -n redis-enterprise
-
-# Verify password format
-oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d | wc -c
-```
-
-**Solution:**
-1. **Verify secret exists and is accessible:**
-   ```bash
-   # Check secret data
-   oc describe secret redb-alert-engine-cache -n redis-enterprise
-   ```
-
-2. **Recreate secret in alert-engine namespace:**
-   ```bash
-   # Copy secret to application namespace
-   oc get secret redb-alert-engine-cache -n redis-enterprise -o yaml | \
-     sed 's/namespace: redis-enterprise/namespace: alert-engine/' | \
-     oc apply -f -
-   ```
-
-#### Step 2.6.5: Alert Engine Compatibility Notes
-
-**ReJSON Module Issues:**
-- If ReJSON module access fails, Alert Engine can use standard Redis SET/GET commands
-- JSON data can be stored as strings and parsed by the application
-- Performance impact is minimal for typical alert rule storage
-
-**Module Dependencies:**
-- **ReJSON**: Used for complex alert rule storage (fallback: standard Redis commands)
-- **RedisTimeSeries**: Used for time-based metrics (fallback: sorted sets)
-- **Basic Redis**: Always required for state management
-
-**Production Considerations:**
-- Test all modules thoroughly before production deployment
-- Implement fallback mechanisms in Alert Engine code
-- Monitor module performance and access patterns
-- Plan for module updates and compatibility
-
-### Step 2.7: Create Redis Network Policies
+### Step 2.5: Create Redis Network Policies
 
 Set up network policies to allow access from alert-engine namespace:
 
 ```bash
-# Get the actual database port for network policy
-REDIS_DB_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')
-
-if [[ -z "$REDIS_DB_PORT" ]]; then
-    echo "❌ Could not determine Redis database port for network policy"
-    echo "🔧 Using default port 13066 - update manually if needed"
-    REDIS_DB_PORT="13066"
-else
-    echo "✅ Using Redis database port: $REDIS_DB_PORT"
-fi
-
-# Create network policy for Redis access
 cat <<EOF | oc apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: redis-network-policy
-  namespace: redis-enterprise
+  name: redis-cluster-network-policy
+  namespace: redis-cluster
 spec:
   podSelector:
     matchLabels:
-      app: redis-enterprise
+      app: redis-cluster
   policyTypes:
   - Ingress
   - Egress
@@ -1868,68 +722,64 @@ spec:
           kubernetes.io/metadata.name: alert-engine
     ports:
     - protocol: TCP
-      port: ${REDIS_DB_PORT}  # Dynamically discovered database port
+      port: 6379
     - protocol: TCP
-      port: 8001   # API port
-    - protocol: TCP
-      port: 9443   # HTTPS API port
+      port: 16379
   egress:
   - {}
 EOF
-
-echo "✅ Redis network policy created with port: $REDIS_DB_PORT"
 ```
 
-### Step 2.8: Get Redis Connection Details
+### Step 2.6: Get Redis Connection Details
+
+Create ConfigMap and Service for Alert Engine:
 
 ```bash
-# Get Redis connection details for application configuration
-echo "=== Redis Connection Details ==="
-echo "Host: alert-engine-cache.redis-enterprise.svc.cluster.local"
-echo "Port: $(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')"
-echo "Password: $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d)"
-echo "Modules: ReJSON, RedisTimeSeries"
+# Create alert-engine namespace if it doesn't exist
+oc create namespace alert-engine --dry-run=client -o yaml | oc apply -f -
+
+# Create service for Redis cluster access
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster-access
+  namespace: redis-cluster
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+    name: redis
+  selector:
+    app: redis-cluster
+EOF
+
+# Create ConfigMap with Redis connection details
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: alert-engine
+data:
+  redis-mode: "cluster"
+  redis-hosts: "redis-cluster-0.redis-cluster.redis-cluster.svc.cluster.local:6379,redis-cluster-1.redis-cluster.redis-cluster.svc.cluster.local:6379,redis-cluster-2.redis-cluster.redis-cluster.svc.cluster.local:6379,redis-cluster-3.redis-cluster.redis-cluster.svc.cluster.local:6379,redis-cluster-4.redis-cluster.redis-cluster.svc.cluster.local:6379,redis-cluster-5.redis-cluster.redis-cluster.svc.cluster.local:6379"
+  redis-cluster-service: "redis-cluster-access.redis-cluster.svc.cluster.local:6379"
+  redis-namespace: "redis-cluster"
+EOF
+
+# Get Redis connection details
+echo "=== Redis Cluster Connection Details ==="
+echo "Mode: cluster"
+echo "Cluster Nodes:"
+oc get pods -l app=redis-cluster -n redis-cluster -o jsonpath='{range .items[*]}{.metadata.name}.redis-cluster.redis-cluster.svc.cluster.local:6379{"\n"}{end}'
+echo "Service: redis-cluster-access.redis-cluster.svc.cluster.local:6379"
 echo "ConfigMap: redis-config (in alert-engine namespace)"
-echo "Secret: redis-password (in alert-engine namespace)"
-echo ""
 ```
 
-### Step 2.9: Complete Redis Enterprise Setup Summary
-
-**✅ Redis Enterprise Setup Complete**
-
-Your Redis Enterprise setup now includes:
-
-1. **Operator**: Redis Enterprise Operator v7.22.0-11.2
-2. **Cluster**: 3-node cluster with 4 available shards
-3. **Database**: alert-engine-cache with ReJSON and RedisTimeSeries modules
-4. **Persistence**: AOF Every Second
-5. **Security**: Secured with password authentication
-6. **Network Policies**: Configured to allow access from alert-engine namespace
-
-**Connection Details:**
-- **Host**: `alert-engine-cache.redis-enterprise.svc.cluster.local` (database service)
-- **Alternative Host**: `redis-13066.rec-alert-engine.redis-enterprise.svc.cluster.local` (internal endpoint)
-- **Port**: `13066` (use the actual port from verification output)
-- **Password**: Retrieved via `oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d`
-- **Modules**: ReJSON 2.8.8, RedisTimeSeries 1.12.6
-- **ConfigMap**: Available in `alert-engine` namespace as `redis-config`
-- **Secret**: Available in `alert-engine` namespace as `redis-password`
-
-**Next Steps:**
-- Use the connection details in your alert-engine application
-- Configure log forwarding to send logs to your application for processing
-- Set up monitoring and alerting rules
-
 ## 3. OpenShift Logging and Log Forwarding Setup
-
-### Overview
-
-This section sets up log collection and forwarding infrastructure to send application logs to the Kafka topic for processing by the Alert Engine. We'll use the OpenShift Logging Operator with ClusterLogForwarder using the correct configuration that addresses known issues.
-
-**Important Note**: OpenShift Logging Operator v6.2.3 had a Vector configuration bug where ClusterLogForwarder generated configs with empty bootstrap_servers. This has been resolved using RedHat's recommended fixes: using `tcp://` prefix for brokers and `deliveryMode` instead of `delivery` in tuning section.
-
-**✅ Real-world Execution Results**: All components in this section have been successfully tested and validated in production-like environments.
 
 ### Step 3.1: Install OpenShift Logging Operator
 
@@ -1957,9 +807,6 @@ EOF
 #### Step 3.1.2: Install the Operator
 
 ```bash
-# Check available channels first
-oc describe packagemanifest cluster-logging -n openshift-marketplace | grep -A 10 "Default Channel"
-
 # Install the operator using stable-6.2 channel
 cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1
@@ -1988,39 +835,12 @@ oc get pods -n openshift-logging
 oc get crd | grep -E "(logging|clusterlog)"
 ```
 
-**Quick validation command:**
-```bash
-# One-liner validation
-oc get csv -n openshift-logging --no-headers | grep cluster-logging | grep -q "Succeeded" && echo "✅ OpenShift Logging Operator Ready" || echo "❌ Installation Failed"
-```
-
-**Expected Output:**
-```
-NAME                     DISPLAY                     VERSION   PHASE
-cluster-logging.v6.2.3   Red Hat OpenShift Logging   6.2.3     Succeeded
-
-✅ OpenShift Logging Operator Ready
-```
-
 ### Step 3.2: Validate OpenShift Logging Operator Installation
 
-After installing the operator, validate that it's properly installed:
-
 ```bash
-# Check the ClusterServiceVersion (CSV)
-oc get csv -n openshift-logging
-
-# Check operator pod is running
-oc get pods -n openshift-logging
-
-# Check CRDs installation
-oc get crd | grep observability.openshift.io
+# Quick validation command
+oc get csv -n openshift-logging --no-headers | grep cluster-logging | grep -q "Succeeded" && echo "✅ OpenShift Logging Operator Ready" || echo "❌ Installation Failed"
 ```
-
-**Expected successful validation:**
-- CSV shows `Phase: Succeeded`
-- Operator pod is `Running` (1/1)
-- CRDs include `clusterlogforwarders.observability.openshift.io`
 
 ### Step 3.3: Create Service Account and RBAC
 
@@ -2063,15 +883,6 @@ subjects:
 EOF
 ```
 
-**Verify service account creation:**
-```bash
-# Check service account
-oc get serviceaccount log-collector -n openshift-logging
-
-# Check role bindings
-oc get clusterrolebinding log-collector-application-logs log-collector-write-logs
-```
-
 ### Step 3.4: Deploy ClusterLogForwarder (Corrected Configuration)
 
 Deploy the ClusterLogForwarder with the **critical RedHat fixes** that resolve the Vector configuration issues:
@@ -2108,75 +919,12 @@ spec:
 EOF
 ```
 
-#### Step 3.4.1: Verify ClusterLogForwarder Status
-
-```bash
-# Check ClusterLogForwarder status
-oc get clusterlogforwarder kafka-forwarder -n openshift-logging
-
-# Wait for ClusterLogForwarder to be validated (30-60 seconds)
-echo "⏳ Waiting for ClusterLogForwarder validation..."
-sleep 30
-
-# Check validation status
-oc get clusterlogforwarder kafka-forwarder -n openshift-logging -o jsonpath='{.status.conditions[?(@.type=="Valid")].status}' && echo ""
-```
-
-**Validation loop (simplified):**
-```bash
-# Check if ClusterLogForwarder is valid
-for i in {1..6}; do
-  STATUS=$(oc get clusterlogforwarder kafka-forwarder -n openshift-logging -o jsonpath='{.status.conditions[?(@.type=="Valid")].status}' 2>/dev/null)
-  if [[ "$STATUS" == "True" ]]; then
-    echo "✅ ClusterLogForwarder Valid"
-    break
-  else
-    echo "⏳ Waiting for validation... (attempt $i/6)"
-    sleep 10
-  fi
-done
-```
-
-#### Step 3.4.2: Verify Vector Collector Pods
-
-```bash
-# Check Vector collector pods (should be 6 pods, one per node)
-oc get pods -n openshift-logging -l app.kubernetes.io/instance=kafka-forwarder
-
-# Count running Vector pods
-VECTOR_COUNT=$(oc get pods -n openshift-logging -l app.kubernetes.io/instance=kafka-forwarder --no-headers | grep Running | wc -l)
-echo "Found $VECTOR_COUNT Vector collector pods running"
-```
-
-**Critical Vector Configuration Check:**
-```bash
-# Get first Vector pod name
-COLLECTOR_POD=$(oc get pods -n openshift-logging -l app.kubernetes.io/instance=kafka-forwarder --no-headers | head -1 | awk '{print $1}')
-
-# Check Vector configuration has populated bootstrap_servers (not empty)
-echo "Checking Vector configuration in pod: $COLLECTOR_POD"
-oc exec -n openshift-logging $COLLECTOR_POD -- cat /etc/vector/vector.toml | grep -A 3 -B 3 bootstrap_servers
-```
-
-**Expected Output:**
-```
-Found 6 Vector collector pods running
-
-# Vector config should show populated bootstrap_servers:
-bootstrap_servers = "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
-```
-
 ### Step 3.5: Deploy Test Application for End-to-End Validation
 
 Create a continuous log generator to test the complete ClusterLogForwarder flow:
 
-#### Step 3.5.1: Create Alert Engine Namespace and Service Account
-
 ```bash
-# Create alert-engine namespace
-oc create namespace alert-engine --dry-run=client -o yaml | oc apply -f -
-
-# Create service account and comprehensive RBAC
+# Create service account for alert-engine
 cat <<EOF | oc apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -2195,9 +943,6 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
   verbs: ["get", "list", "watch"]
-- apiGroups: ["monitoring.coreos.com"]
-  resources: ["servicemonitors"]
-  verbs: ["get", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -2212,13 +957,7 @@ subjects:
   name: alert-engine-sa
   namespace: alert-engine
 EOF
-```
 
-#### Step 3.5.2: Deploy Continuous Log Generator
-
-Deploy a test application that generates realistic log messages:
-
-```bash
 # Create continuous log generator deployment
 cat <<EOF | oc apply -f -
 apiVersion: apps/v1
@@ -2248,12 +987,10 @@ spec:
           echo "Starting continuous random log generator..."
           counter=1
           while true; do
-            # Generate random values
             level_num=\$((RANDOM % 5))
             service_num=\$((RANDOM % 5))
             message_num=\$((RANDOM % 10))
             
-            # Set level
             case \$level_num in
               0) level="INFO" ;;
               1) level="WARN" ;;
@@ -2262,7 +999,6 @@ spec:
               4) level="TRACE" ;;
             esac
             
-            # Set service
             case \$service_num in
               0) service="user-service" ;;
               1) service="payment-service" ;;
@@ -2271,7 +1007,6 @@ spec:
               4) service="notification-service" ;;
             esac
             
-            # Set message
             case \$message_num in
               0) message="User authentication successful" ;;
               1) message="Payment processing initiated" ;;
@@ -2285,11 +1020,9 @@ spec:
               9) message="Session management handled" ;;
             esac
             
-            # Generate timestamp and user ID
             timestamp=\$(date -Iseconds)
             user_id=\$((RANDOM % 1000 + 1))
             
-            # Output structured log message
             echo "[\$timestamp] \$level: \$message | service=\$service | user_id=\$user_id | sequence=\$counter"
             
             counter=\$((counter + 1))
@@ -2305,274 +1038,52 @@ spec:
 EOF
 ```
 
-#### Step 3.5.3: Verify Test Application
-
-```bash
-# Check deployment status
-oc get deployment continuous-log-generator -n alert-engine
-
-# Check pod status
-oc get pods -n alert-engine -l app=continuous-log-generator
-
-# Check recent logs
-POD_NAME=$(oc get pods -n alert-engine -l app=continuous-log-generator --no-headers | awk '{print $1}')
-oc logs $POD_NAME -n alert-engine --tail=5
-```
-
-**Expected Output:**
-```
-NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
-continuous-log-generator   1/1     1            1           45s
-
-NAME                                        READY   STATUS    RESTARTS   AGE
-continuous-log-generator-7d4997bcfd-xrgd4   1/1     Running   0          45s
-
-[2025-07-12T11:56:32+00:00] DEBUG: User authentication successful | service=notification-service | user_id=748 | sequence=282
-```
-
 ### Step 3.6: Execute End-to-End Validation
 
-This is the **CRITICAL** step to verify the complete log flow through ClusterLogForwarder:
-
-#### Step 3.6.1: Wait for Vector Processing
+Wait for logs to flow through the system and verify:
 
 ```bash
 # Wait for Vector to process logs (60 seconds recommended)
 echo "⏳ Waiting 60 seconds for Vector to process and forward logs to Kafka..."
 sleep 60
-```
 
-#### Step 3.6.2: Verify Logs in Kafka Consumer
-
-Test that continuous log generator messages are appearing in Kafka:
-
-```bash
 # Check for alert-engine logs in Kafka
 echo "🔍 Checking Kafka consumer for alert-engine logs..."
-oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- timeout 15 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --max-messages 10 2>/dev/null | grep -E "alert-engine|user_id|sequence"
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- timeout 15 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --max-messages 5
 ```
 
-**Expected Output (Real execution result):**
-```
-{"@timestamp":"2025-07-12T11:57:20.202030039Z","hostname":"ip-10-0-36-253.ca-central-1.compute.internal","kubernetes":{"namespace_name":"alert-engine","pod_name":"continuous-log-generator-7d4997bcfd-xrgd4","container_name":"log-generator"},"level":"error","log_source":"container","log_type":"application","message":"[2025-07-12T11:57:20+00:00] ERROR: Order validation completed | service=inventory-service | user_id=661 | sequence=298"}
-```
+## 🎯 Complete Setup Validation Checklist
 
-#### Step 3.6.3: Simplified End-to-End Validation
+### Final Pre-Deployment Validation
+
+Run this complete validation before proceeding with Alert Engine deployment:
 
 ```bash
-# Simplified validation check
-echo "=== End-to-End Validation ==="
-echo "1. ClusterLogForwarder Status:"
-oc get clusterlogforwarder kafka-forwarder -n openshift-logging
+#!/bin/bash
+echo "=== 🎯 Complete OpenShift Infrastructure Validation ==="
 
-echo "2. Vector Collector Pods:"
-oc get pods -n openshift-logging -l app.kubernetes.io/instance=kafka-forwarder | grep Running | wc -l
-
-echo "3. Test Application:"
-oc get pods -n alert-engine -l app=continuous-log-generator
-
-echo "4. Critical Test - Kafka Consumer:"
-LOG_COUNT=$(oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- timeout 10 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --max-messages 3 2>/dev/null | grep -c "user_id" || echo "0")
-
-if [[ "$LOG_COUNT" -gt 0 ]]; then
-  echo "✅ SUCCESS: Alert-engine logs are flowing to Kafka!"
-  echo "   - Found $LOG_COUNT messages with user_id field"
-  echo "   - End-to-end log flow validated"
-else
-  echo "❌ ISSUE: No alert-engine logs found in Kafka"
-  echo "   - Check Vector collector pods"
-  echo "   - Verify ClusterLogForwarder configuration"
-fi
-```
-
-### Step 3.7: Complete Infrastructure Verification
-
-Run this comprehensive verification to ensure all components are working together:
-
-```bash
-# Simplified infrastructure verification
-echo "=== Complete Infrastructure Verification ==="
-
-# Check Kafka
+# Kafka verification
 echo "1. Kafka Cluster Status:"
-KAFKA_STATUS=$(oc get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-echo "   Kafka Ready: $KAFKA_STATUS"
+KAFKA_READY=$(oc get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+[[ "$KAFKA_READY" == "True" ]] && echo "   ✅ Kafka cluster ready" || echo "   ❌ Kafka cluster not ready"
 
-# Check Redis  
-echo "2. Redis Enterprise Status:"
-REDIS_STATUS=$(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}' 2>/dev/null)
-echo "   Redis State: $REDIS_STATUS"
+# Redis Cluster verification  
+echo "2. Redis Cluster Status:"
+REDIS_PODS=$(oc get pods -l app=redis-cluster -n redis-cluster --no-headers 2>/dev/null | grep Running | wc -l)
+[[ "$REDIS_PODS" -eq 6 ]] && echo "   ✅ Redis cluster ready (6/6 pods)" || echo "   ❌ Redis cluster not ready ($REDIS_PODS/6 pods)"
 
-REDIS_DB_STATUS=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.status}' 2>/dev/null)
-echo "   Redis DB Status: $REDIS_DB_STATUS"
-
-# Check ClusterLogForwarder
+# ClusterLogForwarder verification
 echo "3. ClusterLogForwarder Status:"
 CLF_STATUS=$(oc get clusterlogforwarder kafka-forwarder -n openshift-logging -o jsonpath='{.status.conditions[?(@.type=="Valid")].status}' 2>/dev/null)
-echo "   ClusterLogForwarder Valid: $CLF_STATUS"
+[[ "$CLF_STATUS" == "True" ]] && echo "   ✅ ClusterLogForwarder valid" || echo "   ❌ ClusterLogForwarder invalid"
 
-# Check Vector pods
-echo "4. Vector Collector Pods:"
-VECTOR_COUNT=$(oc get pods -n openshift-logging -l app.kubernetes.io/instance=kafka-forwarder --no-headers 2>/dev/null | grep Running | wc -l)
-echo "   Running Vector Pods: $VECTOR_COUNT"
-
-# Check test application
-echo "5. Test Application:"
-TEST_STATUS=$(oc get pods -n alert-engine -l app=continuous-log-generator -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
-echo "   Test App Status: $TEST_STATUS"
-
-# Final validation
-echo "6. Final Validation:"
-if [[ "$KAFKA_STATUS" == "True" && "$REDIS_STATUS" == "Running" && "$REDIS_DB_STATUS" == "active" && "$CLF_STATUS" == "True" && "$VECTOR_COUNT" -ge 3 && "$TEST_STATUS" == "Running" ]]; then
-  echo "✅ SUCCESS: All infrastructure components are ready!"
-else
-  echo "❌ ISSUE: Some components are not ready"
-fi
-```
-
-### Step 3.8: Document Final Connection Details
-
-Get all configuration details needed for the Alert Engine application:
-
-```bash
-# Get final connection details
-echo "=== Final Alert Engine Configuration ==="
-
-# Get Redis connection details
-echo "REDIS CONFIGURATION:"
-REDIS_HOST="alert-engine-cache.redis-enterprise.svc.cluster.local"
-REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null)
-REDIS_PASSWORD=$(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)
-
-echo "  Host: $REDIS_HOST"
-echo "  Port: $REDIS_PORT"
-echo "  Password: $REDIS_PASSWORD"
-echo "  Modules: ReJSON, RedisTimeSeries"
-echo "  Database: 0"
 echo ""
-
-# Get Kafka connection details
-echo "KAFKA CONFIGURATION:"
-KAFKA_BOOTSTRAP="alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
-KAFKA_TOPIC="application-logs"
-KAFKA_SERVICE_IP=$(oc get svc alert-kafka-cluster-kafka-bootstrap -n amq-streams-kafka -o jsonpath='{.spec.clusterIP}:{.spec.ports[0].port}' 2>/dev/null)
-
-echo "  Bootstrap Servers: $KAFKA_BOOTSTRAP"
-echo "  Topic: $KAFKA_TOPIC"
-echo "  Service IP: $KAFKA_SERVICE_IP"
-echo "  Consumer Group: alert-engine-group"
-echo ""
-
-# Get Kubernetes details
-echo "KUBERNETES CONFIGURATION:"
-echo "  Namespace: alert-engine"
-echo "  Service Account: alert-engine-sa"
-echo "  Network Policies: kafka-network-policy, redis-network-policy"
-echo ""
-
-# Create sample config.yaml
-echo "SAMPLE CONFIG.YAML FOR ALERT ENGINE:"
-cat <<EOF
-kafka:
-  brokers: ["$KAFKA_BOOTSTRAP"]
-  topic: "$KAFKA_TOPIC"
-  consumer_group: "alert-engine-group"
-
-redis:
-  host: "$REDIS_HOST"
-  port: $REDIS_PORT
-  password: "$REDIS_PASSWORD"
-  database: 0
-
-kubernetes:
-  namespace: "alert-engine"
-  service_account: "alert-engine-sa"
-EOF
+echo "📋 CONNECTION DETAILS FOR ALERT ENGINE:"
+echo "Kafka: alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
+echo "Redis: redis-cluster-access.redis-cluster.svc.cluster.local:6379 (cluster mode)"
+echo "Topic: application-logs"
+echo "Namespace: alert-engine"
 ```
-
-**✅ Real-world Execution Results:**
-Based on successful execution, your configuration will show:
-- **Redis Port**: 19058 (dynamically assigned)
-- **Redis Password**: AE3lZGcD (example from real execution)
-- **Kafka Bootstrap**: alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092
-- **End-to-End Validation**: SUCCESS - logs flowing from application to Kafka
-
-### Step 3.9: Troubleshooting Common Issues
-
-Based on real-world execution experience:
-
-#### Issue 1: Complex Shell Commands
-**Problem**: Complex echo statements with nested quotes cause terminal issues
-**Solution**: Use simplified commands, avoid nested command substitutions
-
-#### Issue 2: ClusterLogForwarder Not Valid
-**Problem**: ClusterLogForwarder shows invalid status
-**Solution**: 
-```bash
-# Check detailed status
-oc get clusterlogforwarder kafka-forwarder -n openshift-logging -o yaml | grep -A 10 conditions
-
-# Verify service account exists
-oc get serviceaccount log-collector -n openshift-logging
-```
-
-#### Issue 3: Vector Pods Not Starting
-**Problem**: No collector pods or pods failing to start
-**Solution**: Check node resources and operator logs
-
-#### Issue 4: Redis Port Discovery Issues
-**Problem**: Redis port empty or incorrect
-**Solution**: Use actual service information
-```bash
-# Get Redis service details
-oc get svc -n redis-enterprise | grep alert-engine-cache
-oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
-```
-
-### Step 3.10: Cleanup (Optional)
-
-If you need to clean up the test application:
-
-```bash
-# Remove test application
-oc delete deployment continuous-log-generator -n alert-engine
-
-# Keep ClusterLogForwarder and other components for Alert Engine use
-```
-
-## Summary
-
-**✅ Step 3 Complete - ClusterLogForwarder Successfully Deployed**
-
-### What's Working:
-1. **OpenShift Logging Operator**: v6.2.3 installed and operational
-2. **ClusterLogForwarder**: Successfully configured with RedHat fixes
-3. **Vector Configuration**: Bootstrap servers properly populated (fixed)
-4. **Vector Collectors**: 6 pods running, processing application logs
-5. **Test Application**: Continuous log generator producing realistic messages
-6. **End-to-End Validation**: ✅ Logs flowing Application → Vector → Kafka → Consumer
-
-### Key Success Factors:
-- **RedHat Fixes Applied**: `tcp://` prefix for brokers, `deliveryMode` instead of `delivery`
-- **Proper Service Account**: `log-collector` with correct RBAC permissions
-- **Simplified Commands**: Fixed quote/command issues from execution experience
-- **Real-world Data**: Updated with actual Redis port (19058) and password values
-
-### Connection Details for Alert Engine:
-- **Kafka Bootstrap**: `alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092`
-- **Redis Host**: `alert-engine-cache.redis-enterprise.svc.cluster.local`
-- **Redis Port**: `19058` (actual from execution)
-- **Topic**: `application-logs`
-- **Format**: JSON with Kubernetes metadata + original log messages
-
-### Next Steps:
-- Use the documented connection details to configure your Alert Engine application
-- Test the Alert Engine locally with these OpenShift connection details
-- Deploy the Alert Engine to OpenShift using the provided configuration
-
-**Note**: This updated Step 3 includes all fixes from real-world execution experience and resolves the quote/command issues that caused terminal problems during execution.
-
----
 
 ## 4. Next Steps
 
@@ -2583,140 +1094,18 @@ After completing this infrastructure setup:
 3. **Configure Monitoring**: Set up Prometheus monitoring for the Alert Engine metrics
 4. **Test End-to-End**: Generate test logs and verify alerts are triggered and notifications are sent
 
-This completes the OpenShift infrastructure setup. You can now proceed with local testing and then deploy the Alert Engine application to OpenShift.
-
 ---
 
-## 🎯 Complete Setup Validation Checklist
+**🎉 OpenShift Infrastructure Setup Complete!**
 
-Use this comprehensive checklist to verify your entire OpenShift infrastructure setup:
+You now have:
+- ✅ **Kafka Cluster**: Ready for log message streaming
+- ✅ **Redis Cluster (HA)**: Ready for state storage and caching
+- ✅ **ClusterLogForwarder**: Ready for log collection and forwarding
+- ✅ **Network Policies**: Configured for secure access
+- ✅ **Service Accounts**: Ready for Alert Engine deployment
 
-### ✅ Final Pre-Deployment Validation
-
-**Run this complete validation before proceeding with Alert Engine deployment:**
-
-```bash
-#!/bin/bash
-echo "=== 🎯 Complete OpenShift Infrastructure Validation ==="
-echo ""
-
-# Storage verification
-echo "1. Storage Class Verification:"
-oc get storageclass gp3-csi > /dev/null 2>&1 && echo "   ✅ Storage class available" || echo "   ❌ Storage class missing"
-echo ""
-
-# AMQ Streams / Kafka verification
-echo "2. AMQ Streams / Kafka Verification:"
-KAFKA_READY=$(oc get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-[[ "$KAFKA_READY" == "True" ]] && echo "   ✅ Kafka cluster ready" || echo "   ❌ Kafka cluster not ready"
-
-KAFKA_TOPICS=$(oc get kafkatopic -n amq-streams-kafka --no-headers | wc -l)
-[[ "$KAFKA_TOPICS" -gt 0 ]] && echo "   ✅ Kafka topics created ($KAFKA_TOPICS)" || echo "   ❌ No Kafka topics found"
-
-echo "   Testing Kafka producer-consumer..."
-echo '{"test":"validation"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs >/dev/null 2>&1
-KAFKA_TEST=$(oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- timeout 5 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --max-messages 1 2>/dev/null | wc -l)
-[[ "$KAFKA_TEST" -gt 0 ]] && echo "   ✅ Kafka producer-consumer test passed" || echo "   ❌ Kafka producer-consumer test failed"
-echo ""
-
-# Redis Enterprise verification  
-echo "3. Redis Enterprise Verification:"
-REDIS_STATE=$(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}' 2>/dev/null)
-[[ "$REDIS_STATE" == "Running" ]] && echo "   ✅ Redis Enterprise cluster running" || echo "   ❌ Redis Enterprise cluster not running"
-
-REDIS_DB_STATUS=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.status}' 2>/dev/null)
-[[ "$REDIS_DB_STATUS" == "active" ]] && echo "   ✅ Redis database active" || echo "   ❌ Redis database not active"
-
-echo "   Testing Redis connection..."
-REDIS_TEST=$(oc run redis-validate-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p 13261 -a "$(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d)" ping 2>/dev/null)
-[[ "$REDIS_TEST" == "PONG" ]] && echo "   ✅ Redis connection test passed" || echo "   ❌ Redis connection test failed"
-echo ""
-
-# ClusterLogForwarder verification
-echo "4. ClusterLogForwarder Verification:"
-CLF_VALID=$(oc get clusterlogforwarder kafka-forwarder -n openshift-logging -o jsonpath='{.status.conditions[?(@.type=="Valid")].status}' 2>/dev/null)
-[[ "$CLF_VALID" == "True" ]] && echo "   ✅ ClusterLogForwarder valid" || echo "   ❌ ClusterLogForwarder invalid"
-
-VECTOR_PODS=$(oc get pods -n openshift-logging -l app.kubernetes.io/instance=kafka-forwarder --no-headers 2>/dev/null | grep Running | wc -l)
-[[ "$VECTOR_PODS" -ge 3 ]] && echo "   ✅ Vector collector pods running ($VECTOR_PODS)" || echo "   ❌ Vector collector pods not running"
-
-echo "   Testing end-to-end log flow..."
-LOG_FLOW_TEST=$(oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- timeout 10 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --max-messages 3 2>/dev/null | grep -c "user_id")
-[[ "$LOG_FLOW_TEST" -gt 0 ]] && echo "   ✅ End-to-end log flow working" || echo "   ❌ End-to-end log flow not working"
-echo ""
-
-# Service accounts and RBAC verification
-echo "5. Service Accounts and RBAC Verification:"
-oc get serviceaccount alert-engine-sa -n alert-engine > /dev/null 2>&1 && echo "   ✅ Alert Engine service account exists" || echo "   ❌ Alert Engine service account missing"
-oc get clusterrolebinding alert-engine-binding > /dev/null 2>&1 && echo "   ✅ Alert Engine RBAC configured" || echo "   ❌ Alert Engine RBAC missing"
-echo ""
-
-# Network policies verification
-echo "6. Network Policies Verification:"
-oc get networkpolicy kafka-network-policy -n amq-streams-kafka > /dev/null 2>&1 && echo "   ✅ Kafka network policy exists" || echo "   ❌ Kafka network policy missing"
-oc get networkpolicy redis-network-policy -n redis-enterprise > /dev/null 2>&1 && echo "   ✅ Redis network policy exists" || echo "   ❌ Redis network policy missing"
-echo ""
-
-# Configuration verification
-echo "7. Configuration Verification:"
-oc get configmap redis-config -n alert-engine > /dev/null 2>&1 && echo "   ✅ Redis configuration available" || echo "   ❌ Redis configuration missing"
-oc get secret redis-password -n alert-engine > /dev/null 2>&1 && echo "   ✅ Redis password secret available" || echo "   ❌ Redis password secret missing"
-echo ""
-
-# Final summary
-echo "8. 🎯 FINAL VALIDATION SUMMARY:"
-echo ""
-echo "   Connection Details:"
-echo "   - Kafka: alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
-echo "   - Redis: alert-engine-cache.redis-enterprise.svc.cluster.local:$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null || echo '13066')"
-echo "   - Topic: application-logs"
-echo "   - Namespace: alert-engine"
-echo ""
-
-# Overall validation check
-TOTAL_CHECKS=8
-PASSED_CHECKS=0
-
-[[ "$KAFKA_READY" == "True" ]] && ((PASSED_CHECKS++))
-[[ "$KAFKA_TOPICS" -gt 0 ]] && ((PASSED_CHECKS++))
-[[ "$KAFKA_TEST" -gt 0 ]] && ((PASSED_CHECKS++))
-[[ "$REDIS_STATE" == "Running" ]] && ((PASSED_CHECKS++))
-[[ "$REDIS_DB_STATUS" == "active" ]] && ((PASSED_CHECKS++))
-[[ "$CLF_VALID" == "True" ]] && ((PASSED_CHECKS++))
-[[ "$VECTOR_PODS" -ge 3 ]] && ((PASSED_CHECKS++))
-[[ "$LOG_FLOW_TEST" -gt 0 ]] && ((PASSED_CHECKS++))
-
-echo "   Overall Status: $PASSED_CHECKS/$TOTAL_CHECKS checks passed"
-echo ""
-
-if [[ "$PASSED_CHECKS" -eq "$TOTAL_CHECKS" ]]; then
-    echo "🎉 SUCCESS: All infrastructure components are ready!"
-    echo "   ✅ You can now proceed with Alert Engine deployment"
-    echo "   📋 Use the connection details above for your application configuration"
-else
-    echo "❌ ISSUES FOUND: $((TOTAL_CHECKS - PASSED_CHECKS)) checks failed"
-    echo "   🔧 Review the failed checks above and address issues before proceeding"
-    echo "   📖 Refer to troubleshooting sections in each component setup"
-fi
-echo ""
-echo "=== Infrastructure Validation Complete ==="
-```
-
-### 🚀 Ready for Deployment
-
-**If all validations pass, you have successfully:**
-
-1. ✅ **Verified Prerequisites**: Storage classes and cluster access
-2. ✅ **Deployed AMQ Streams**: Kafka cluster with topics and producer-consumer validation
-3. ✅ **Deployed Redis Enterprise**: Cluster and database with module testing
-4. ✅ **Configured ClusterLogForwarder**: End-to-end log flow from applications to Kafka
-5. ✅ **Set up Service Accounts**: RBAC and network policies
-6. ✅ **Created Configuration**: ConfigMaps and secrets for application use
-
-### 📋 Connection Details for Alert Engine
-
-**Use these validated connection details in your `configs/config.yaml`:**
-
+**Sample `config.yaml` for Alert Engine:**
 ```yaml
 kafka:
   brokers: ["alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"]
@@ -2724,313 +1113,14 @@ kafka:
   consumer_group: "alert-engine-group"
 
 redis:
-  host: "alert-engine-cache.redis-enterprise.svc.cluster.local"
-  port: 13261  # Use actual port from validation output
-  password: "YOUR_REDIS_PASSWORD"  # From validation output
-  database: 0
+  mode: "cluster"
+  addresses: [
+    "redis-cluster-0.redis-cluster.redis-cluster.svc.cluster.local:6379",
+    "redis-cluster-1.redis-cluster.redis-cluster.svc.cluster.local:6379",
+    "redis-cluster-2.redis-cluster.redis-cluster.svc.cluster.local:6379"
+  ]
 
 kubernetes:
   namespace: "alert-engine"
   service_account: "alert-engine-sa"
-```
-
-### 🔧 If Validation Fails
-
-**Common issues and quick fixes:**
-
-1. **Storage Class Issues**: Update all `gp3-csi` references to your cluster's available storage class
-2. **Kafka Not Ready**: Check operator logs and ensure OperatorGroup exists
-3. **Redis Connection Fails**: Verify ports and passwords from validation output
-4. **ClusterLogForwarder Invalid**: Check service account permissions and wait for validation
-5. **No Log Flow**: Verify Vector pods are running and check ClusterLogForwarder configuration
-
-**Re-run the validation script after fixing issues.**
-
----
-
-**🎯 Infrastructure Setup Complete - Ready for Alert Engine Deployment!** 
-
-### Step 2.10: Troubleshooting Redis Enterprise Cluster Error State
-
-If your Redis Enterprise cluster shows "Error" state with no service endpoints, follow these steps:
-
-#### **Critical Fix 1: Update to Red Hat Certified Images**
-
-The most common cause of Redis Enterprise cluster errors in OpenShift is using Docker Hub images instead of Red Hat certified images.
-
-**Delete the existing cluster:**
-```bash
-# Delete the problematic cluster
-oc delete redisenterprisecluster rec-alert-engine -n redis-enterprise
-
-# Wait for complete deletion
-oc get pods -n redis-enterprise -w
-```
-
-**Recreate with Red Hat certified images:**
-```yaml
-cat <<EOF | oc apply -f -
-apiVersion: app.redislabs.com/v1
-kind: RedisEnterpriseCluster
-metadata:
-  name: rec-alert-engine
-  namespace: redis-enterprise
-spec:
-  nodes: 3
-  persistentSpec:
-    enabled: true
-    storageClassName: gp3-csi
-    volumeSize: 20Gi
-  redisEnterpriseNodeResources:
-    limits:
-      cpu: 2000m
-      memory: 4Gi
-    requests:
-      cpu: 1000m
-      memory: 2Gi
-  services:
-    riggerService:
-      serviceType: ClusterIP
-    apiService:
-      serviceType: ClusterIP
-  # CRITICAL: Use Red Hat certified images for OpenShift
-  bootstrapperImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
-    imagePullPolicy: IfNotPresent
-  redisEnterpriseServicesRiggerImageSpec:
-    repository: registry.connect.redhat.com/redislabs/services-manager
-    imagePullPolicy: IfNotPresent
-  redisEnterpriseImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise
-    imagePullPolicy: IfNotPresent
-EOF
-```
-
-#### **Critical Fix 2: Add Resource Limits and Anti-Affinity**
-
-Add pod anti-affinity and resource specifications:
-
-```yaml
-cat <<EOF | oc apply -f -
-apiVersion: app.redislabs.com/v1
-kind: RedisEnterpriseCluster
-metadata:
-  name: rec-alert-engine
-  namespace: redis-enterprise
-spec:
-  nodes: 3
-  persistentSpec:
-    enabled: true
-    storageClassName: gp3-csi
-    volumeSize: 20Gi
-  redisEnterpriseNodeResources:
-    limits:
-      cpu: 2000m
-      memory: 4Gi
-    requests:
-      cpu: 1000m
-      memory: 2Gi
-  # Add anti-affinity for better distribution
-  antiAffinityAdditionalPodAntiAffinity:
-  - labelSelector:
-      matchLabels:
-        app: redis-enterprise
-    topologyKey: kubernetes.io/hostname
-  services:
-    riggerService:
-      serviceType: ClusterIP
-    apiService:
-      serviceType: ClusterIP
-  # Use Red Hat certified images
-  bootstrapperImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
-    imagePullPolicy: IfNotPresent
-  redisEnterpriseServicesRiggerImageSpec:
-    repository: registry.connect.redhat.com/redislabs/services-manager
-    imagePullPolicy: IfNotPresent
-  redisEnterpriseImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise
-    imagePullPolicy: IfNotPresent
-EOF
-```
-
-#### **Critical Fix 3: Security Context Constraints Configuration**
-
-Ensure proper SCC configuration:
-
-```bash
-# Update Security Context Constraints for Redis Enterprise
-cat <<EOF | oc apply -f -
-apiVersion: security.openshift.io/v1
-kind: SecurityContextConstraints
-metadata:
-  name: redis-enterprise-scc
-allowHostDirVolumePlugin: false
-allowHostIPC: false
-allowHostNetwork: false
-allowHostPID: false
-allowHostPorts: false
-allowPrivilegedContainer: false
-allowedCapabilities:
-- SYS_RESOURCE
-defaultAddCapabilities: null
-requiredDropCapabilities:
-- KILL
-- MKNOD
-- SETUID
-- SETGID
-runAsUser:
-  type: MustRunAsRange
-  uidRangeMin: 1000
-  uidRangeMax: 2000
-seLinuxContext:
-  type: MustRunAs
-fsGroup:
-  type: RunAsAny
-supplementalGroups:
-  type: RunAsAny
-volumes:
-- configMap
-- downwardAPI
-- emptyDir
-- persistentVolumeClaim
-- projected
-- secret
-EOF
-
-# Apply SCC to service accounts
-oc adm policy add-scc-to-user redis-enterprise-scc -z redis-enterprise-operator -n redis-enterprise
-oc adm policy add-scc-to-user redis-enterprise-scc -z rec-alert-engine -n redis-enterprise
-```
-
-#### **Critical Fix 4: Cluster Recreation with Validation**
-
-Complete cluster recreation process:
-
-```bash
-# Step 1: Complete cleanup
-oc delete redisenterprisecluster rec-alert-engine -n redis-enterprise
-oc delete redisenterprisedatabase alert-engine-cache -n redis-enterprise
-
-# Step 2: Wait for complete deletion
-echo "Waiting for complete cleanup..."
-while oc get pods -n redis-enterprise | grep -q "rec-alert-engine"; do
-  echo "Waiting for pod cleanup..."
-  sleep 10
-done
-
-# Step 3: Recreate with corrected configuration
-cat <<EOF | oc apply -f -
-apiVersion: app.redislabs.com/v1
-kind: RedisEnterpriseCluster
-metadata:
-  name: rec-alert-engine
-  namespace: redis-enterprise
-spec:
-  nodes: 3
-  persistentSpec:
-    enabled: true
-    storageClassName: gp3-csi
-    volumeSize: 20Gi
-  redisEnterpriseNodeResources:
-    limits:
-      cpu: 2000m
-      memory: 4Gi
-    requests:
-      cpu: 1000m
-      memory: 2Gi
-  # CRITICAL: Use Red Hat certified images
-  bootstrapperImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
-    imagePullPolicy: IfNotPresent
-  redisEnterpriseServicesRiggerImageSpec:
-    repository: registry.connect.redhat.com/redislabs/services-manager
-    imagePullPolicy: IfNotPresent
-  redisEnterpriseImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise
-    imagePullPolicy: IfNotPresent
-  services:
-    riggerService:
-      serviceType: ClusterIP
-    apiService:
-      serviceType: ClusterIP
-EOF
-
-# Step 4: Monitor cluster creation
-echo "Monitoring cluster creation..."
-watch -n 10 'oc get redisenterprisecluster rec-alert-engine -n redis-enterprise && echo "" && oc get pods -n redis-enterprise'
-```
-
-#### **Alternative Fix: Use OpenShift-Specific Configuration**
-
-If the above fixes don't work, try this OpenShift-optimized configuration:
-
-```yaml
-cat <<EOF | oc apply -f -
-apiVersion: app.redislabs.com/v1
-kind: RedisEnterpriseCluster
-metadata:
-  name: rec-alert-engine
-  namespace: redis-enterprise
-spec:
-  nodes: 3
-  persistentSpec:
-    enabled: true
-    storageClassName: gp3-csi
-    volumeSize: 20Gi
-  redisEnterpriseNodeResources:
-    limits:
-      cpu: 1000m      # Reduced CPU limits
-      memory: 2Gi     # Reduced memory limits
-    requests:
-      cpu: 500m       # Reduced CPU requests
-      memory: 1Gi     # Reduced memory requests
-  # OpenShift-specific configuration
-  enforceIPv4: true
-  services:
-    riggerService:
-      serviceType: ClusterIP
-    apiService:
-      serviceType: ClusterIP
-  # Use Red Hat certified images
-  bootstrapperImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise-operator
-    imagePullPolicy: IfNotPresent
-  redisEnterpriseServicesRiggerImageSpec:
-    repository: registry.connect.redhat.com/redislabs/services-manager
-    imagePullPolicy: IfNotPresent
-  redisEnterpriseImageSpec:
-    repository: registry.connect.redhat.com/redislabs/redis-enterprise
-    imagePullPolicy: IfNotPresent
-EOF
-```
-
-#### **Validation After Fix**
-
-After recreating the cluster, run this validation:
-
-```bash
-# Wait for cluster to reach Running state
-echo "Waiting for cluster to reach Running state..."
-while true; do
-  STATUS=$(oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.state}' 2>/dev/null)
-  if [[ "$STATUS" == "Running" ]]; then
-    echo "✅ Cluster is now Running!"
-    break
-  elif [[ "$STATUS" == "Error" ]]; then
-    echo "❌ Cluster is still in Error state"
-    break
-  else
-    echo "⏳ Current state: $STATUS"
-    sleep 30
-  fi
-done
-
-# Check service endpoints
-echo "Checking service endpoints..."
-oc get endpoints -n redis-enterprise
-
-# Check pod readiness
-echo "Checking pod readiness..."
-oc get pods -n redis-enterprise
 ```
