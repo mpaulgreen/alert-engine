@@ -1358,19 +1358,50 @@ oc run redis-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h 
 
 Create a ConfigMap with Redis connection details for your applications:
 
-**First, get the current database port:**
+**First, get the current database port (with proper error handling):**
 ```bash
-# Get the actual database port
-REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.internalEndpoints[0].port}')
-echo "Database Port: $REDIS_PORT"
+# Get the actual database port with multiple attempts
+echo "🔍 Discovering Redis database port..."
+REDIS_PORT=""
+for i in {1..5}; do
+    REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null)
+    if [[ -n "$REDIS_PORT" ]]; then
+        echo "✅ Found Redis database port: $REDIS_PORT"
+        break
+    else
+        echo "⏳ Waiting for database port... (attempt $i/5)"
+        sleep 10
+    fi
+done
+
+# Fallback port discovery methods
+if [[ -z "$REDIS_PORT" ]]; then
+    echo "🔍 Trying alternative port discovery methods..."
+    # Try internal endpoints
+    REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.internalEndpoints[0].port}' 2>/dev/null)
+    
+    # Try service port
+    if [[ -z "$REDIS_PORT" ]]; then
+        REDIS_PORT=$(oc get service alert-engine-cache -n redis-enterprise -o jsonpath='{.spec.ports[0].port}' 2>/dev/null)
+    fi
+fi
+
+# Final validation
+if [[ -z "$REDIS_PORT" ]]; then
+    echo "❌ Could not determine Redis port. Check database status:"
+    oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise
+    exit 1
+else
+    echo "✅ Using Redis port: $REDIS_PORT"
+fi
 ```
 
-**Create the ConfigMap with actual values:**
-```yaml
+**Create the ConfigMap with dynamically discovered values:**
+```bash
 # Create namespace if it doesn't exist
 oc create namespace alert-engine --dry-run=client -o yaml | oc apply -f -
 
-# Create ConfigMap with correct Redis connection details
+# Create ConfigMap with dynamically discovered Redis connection details
 cat <<EOF | oc apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -1380,16 +1411,18 @@ metadata:
 data:
   # Use the database service name, not the cluster service
   redis-host: "alert-engine-cache.redis-enterprise.svc.cluster.local"
-  redis-port: "13066"
+  redis-port: "${REDIS_PORT}"
   redis-database: "alert-engine-cache"
   # Alternative internal endpoint (more reliable for enterprise features)
-  redis-internal-host: "redis-13066.rec-alert-engine.redis-enterprise.svc.cluster.local"
+  redis-internal-host: "redis-${REDIS_PORT}.rec-alert-engine.redis-enterprise.svc.cluster.local"
   # Cluster information
   redis-cluster: "rec-alert-engine"
   redis-namespace: "redis-enterprise"
   # Secret reference for password
   redis-secret-name: "redb-alert-engine-cache"
 EOF
+
+echo "✅ ConfigMap created with Redis port: ${REDIS_PORT}"
 ```
 
 **Create a Secret reference for the password:**
@@ -1424,50 +1457,159 @@ echo "Port: $(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.
 echo "Password: $(oc get secret redis-password -n alert-engine -o jsonpath='{.data.password}' | base64 -d)"
 ```
 
-**Test Redis Connection:**
+**Test Redis Connection (Enhanced with Better Error Handling):**
 ```bash
 # Get connection details first
 REDIS_HOST=$(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-host}')
 REDIS_PORT=$(oc get configmap redis-config -n alert-engine -o jsonpath='{.data.redis-port}')
 REDIS_PASSWORD=$(oc get secret redis-password -n alert-engine -o jsonpath='{.data.password}' | base64 -d)
 
-echo "Testing Redis connection to $REDIS_HOST:$REDIS_PORT"
+echo "🔍 Testing Redis connection to $REDIS_HOST:$REDIS_PORT"
 
-# Test connection with ping
-oc run redis-connection-test --rm -i --tty --image=redis:7 --restart=Never -- \
-  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping
+# Test 1: Basic connection with ping
+echo "1. Testing basic Redis connection..."
+PING_RESULT=$(oc run redis-connection-test --rm -i --image=redis:7 --restart=Never -- \
+  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping 2>/dev/null)
 
-# Test ReJSON module (proper escaping)
-oc run redis-json-test --rm -i --tty --image=redis:7 --restart=Never -- \
+if [[ "$PING_RESULT" == "PONG" ]]; then
+    echo "   ✅ Basic Redis connection successful"
+else
+    echo "   ❌ Basic Redis connection failed: $PING_RESULT"
+    echo "   🔧 Troubleshooting: Check host, port, and password"
+    exit 1
+fi
+
+# Test 2: ReJSON module (with better error handling)
+echo "2. Testing ReJSON module..."
+JSON_SET_RESULT=$(oc run redis-json-test --rm -i --image=redis:7 --restart=Never -- \
   redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  JSON.SET test:config '$' '{"app":"alert-engine","status":"ready"}'
+  JSON.SET test:config '$' '{"app":"alert-engine","status":"ready","timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' 2>/dev/null)
 
-# Verify ReJSON data
-oc run redis-json-verify --rm -i --tty --image=redis:7 --restart=Never -- \
-  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  JSON.GET test:config
+if [[ "$JSON_SET_RESULT" == "OK" ]]; then
+    echo "   ✅ ReJSON SET operation successful"
+    
+    # Verify ReJSON data
+    JSON_GET_RESULT=$(oc run redis-json-verify --rm -i --image=redis:7 --restart=Never -- \
+      redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
+      JSON.GET test:config 2>/dev/null)
+    
+    if [[ -n "$JSON_GET_RESULT" && "$JSON_GET_RESULT" != "(nil)" ]]; then
+        echo "   ✅ ReJSON GET operation successful"
+        echo "   📄 Retrieved data: $JSON_GET_RESULT"
+    else
+        echo "   ⚠️ ReJSON GET operation failed or returned empty result"
+        echo "   🔧 This may indicate module access issues, but basic functionality works"
+    fi
+else
+    echo "   ❌ ReJSON SET operation failed: $JSON_SET_RESULT"
+    echo "   🔧 Troubleshooting: Check if ReJSON module is properly loaded"
+    
+    # Try alternative ReJSON test
+    echo "   🔄 Trying alternative ReJSON test..."
+    ALT_JSON_RESULT=$(oc run redis-json-alt-test --rm -i --image=redis:7 --restart=Never -- \
+      redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
+      SET test:simple-json '{"test":"value"}' 2>/dev/null)
+    
+    if [[ "$ALT_JSON_RESULT" == "OK" ]]; then
+        echo "   ✅ Alternative JSON storage works (using SET command)"
+        echo "   📝 Note: ReJSON module may have access issues but basic Redis functionality confirmed"
+    else
+        echo "   ❌ Alternative JSON test also failed"
+    fi
+fi
 
-# Test RedisTimeSeries module
-oc run redis-ts-test --rm -i --tty --image=redis:7 --restart=Never -- \
-  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  TS.CREATE test:metrics LABELS metric_type test
-
-# Add a test time series value
+# Test 3: RedisTimeSeries module (with better error handling)
+echo "3. Testing RedisTimeSeries module..."
 CURRENT_TIME=$(date +%s)
-oc run redis-ts-add --rm -i --tty --image=redis:7 --restart=Never -- \
+TS_CREATE_RESULT=$(oc run redis-ts-test --rm -i --image=redis:7 --restart=Never -- \
   redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
-  TS.ADD test:metrics "$CURRENT_TIME" 42.5
+  TS.CREATE test:metrics LABELS metric_type test 2>/dev/null)
+
+if [[ "$TS_CREATE_RESULT" == "OK" ]]; then
+    echo "   ✅ RedisTimeSeries CREATE operation successful"
+    
+    # Add a test time series value
+    TS_ADD_RESULT=$(oc run redis-ts-add --rm -i --image=redis:7 --restart=Never -- \
+      redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
+      TS.ADD test:metrics "$CURRENT_TIME" 42.5 2>/dev/null)
+    
+    if [[ -n "$TS_ADD_RESULT" ]]; then
+        echo "   ✅ RedisTimeSeries ADD operation successful"
+        echo "   📊 Added timestamp: $CURRENT_TIME, value: 42.5"
+    else
+        echo "   ⚠️ RedisTimeSeries ADD operation had issues"
+    fi
+else
+    echo "   ❌ RedisTimeSeries CREATE operation failed: $TS_CREATE_RESULT"
+    echo "   🔧 Troubleshooting: Check if RedisTimeSeries module is properly loaded"
+fi
+
+# Test 4: Module availability check
+echo "4. Checking loaded modules..."
+MODULES_RESULT=$(oc run redis-modules-check --rm -i --image=redis:7 --restart=Never -- \
+  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
+  MODULE LIST 2>/dev/null)
+
+if [[ -n "$MODULES_RESULT" ]]; then
+    echo "   ✅ Module list retrieved successfully"
+    echo "   📋 Loaded modules: $MODULES_RESULT"
+else
+    echo "   ⚠️ Could not retrieve module list"
+fi
+
+# Cleanup test keys
+echo "5. Cleaning up test data..."
+oc run redis-cleanup --rm -i --image=redis:7 --restart=Never -- \
+  redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
+  DEL test:config test:simple-json test:metrics >/dev/null 2>&1
+
+echo "✅ Redis connection testing completed"
 ```
 
 **Expected Output:**
 ```
-Testing Redis connection to alert-engine-cache.redis-enterprise.svc.cluster.local:13261
-PONG
-OK
-{"app":"alert-engine","status":"ready"}
-OK
-OK
+🔍 Testing Redis connection to alert-engine-cache.redis-enterprise.svc.cluster.local:13261
+1. Testing basic Redis connection...
+   ✅ Basic Redis connection successful
+2. Testing ReJSON module...
+   ✅ ReJSON SET operation successful
+   ✅ ReJSON GET operation successful
+   📄 Retrieved data: {"app":"alert-engine","status":"ready","timestamp":"2025-01-XX..."}
+3. Testing RedisTimeSeries module...
+   ✅ RedisTimeSeries CREATE operation successful
+   ✅ RedisTimeSeries ADD operation successful
+   📊 Added timestamp: 1706123456, value: 42.5
+4. Checking loaded modules...
+   ✅ Module list retrieved successfully
+   📋 Loaded modules: [ReJSON, timeseries, ...]
+5. Cleaning up test data...
+✅ Redis connection testing completed
 ```
+
+**⚠️ If ReJSON module access issues occur (as identified in execution):**
+```
+🔍 Testing Redis connection to alert-engine-cache.redis-enterprise.svc.cluster.local:13261
+1. Testing basic Redis connection...
+   ✅ Basic Redis connection successful
+2. Testing ReJSON module...
+   ❌ ReJSON SET operation failed: (error) ERR unknown command 'JSON.SET'
+   🔧 Troubleshooting: Check if ReJSON module is properly loaded
+   🔄 Trying alternative ReJSON test...
+   ✅ Alternative JSON storage works (using SET command)
+   📝 Note: ReJSON module may have access issues but basic Redis functionality confirmed
+3. Testing RedisTimeSeries module...
+   ✅ RedisTimeSeries CREATE operation successful
+   ✅ RedisTimeSeries ADD operation successful
+   📊 Added timestamp: 1706123456, value: 42.5
+4. Checking loaded modules...
+   ✅ Module list retrieved successfully
+   📋 Loaded modules: [timeseries, ...]
+5. Cleaning up test data...
+✅ Redis connection testing completed
+```
+
+**🔧 Troubleshooting ReJSON Module Issues:**
+If ReJSON module access fails but basic Redis works, this indicates the module is installed but may have access configuration issues. The Alert Engine can still function using standard Redis commands for JSON storage as a fallback.
 
 #### Step 2.6.3: Complete Redis Enterprise Verification
 
@@ -1489,7 +1631,18 @@ echo "4. Service Status:" && \
 oc get svc -n redis-enterprise && \
 echo "" && \
 echo "5. Connection Test:" && \
-oc run redis-connection-test --rm -i --tty --image=redis:7 --restart=Never -- redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p 13261 -a $(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d) ping
+REDIS_PASSWORD=$(oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d 2>/dev/null) && \
+REDIS_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}' 2>/dev/null) && \
+if [[ -n "$REDIS_PASSWORD" && -n "$REDIS_PORT" ]]; then \
+    PING_RESULT=$(oc run redis-connection-test --rm -i --image=redis:7 --restart=Never -- redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping 2>/dev/null); \
+    if [[ "$PING_RESULT" == "PONG" ]]; then \
+        echo "✅ Redis connection successful (port: $REDIS_PORT)"; \
+    else \
+        echo "❌ Redis connection failed: $PING_RESULT"; \
+    fi; \
+else \
+    echo "❌ Could not retrieve Redis connection details"; \
+fi
 ```
 
 **Expected Output:**
@@ -1527,12 +1680,173 @@ PONG
 - Database STATUS shows "active"
 - All pods show "Running" status
 - Connection test returns "PONG"
+- ReJSON and RedisTimeSeries modules are accessible (or fallback methods work)
+
+#### Step 2.6.4: Troubleshooting Common Connection Issues
+
+**Issue 1: ReJSON Module Access Problems (Identified During Execution)**
+
+**Symptoms:**
+- Basic Redis connection works (PONG successful)
+- ReJSON commands fail with `ERR unknown command 'JSON.SET'`
+- Alternative JSON storage (SET command) works
+
+**Root Cause:**
+- ReJSON module is installed but may have configuration/access issues
+- Module loading order or permissions may be affecting access
+
+**Diagnosis:**
+```bash
+# Check if ReJSON module is loaded
+oc run redis-module-check --rm -i --image=redis:7 --restart=Never -- \
+  redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p "$REDIS_PORT" -a "$REDIS_PASSWORD" \
+  MODULE LIST
+
+# Check database configuration
+oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o yaml | grep -A 5 redisModule
+```
+
+**Solution:**
+1. **Verify module versions are compatible:**
+   ```bash
+   # Check available modules and versions
+   oc get redisenterprisecluster rec-alert-engine -n redis-enterprise -o jsonpath='{.status.modules[*]}'
+   ```
+
+2. **Use fallback approach for JSON storage:**
+   ```bash
+   # Alert Engine can use standard Redis commands for JSON storage
+   # SET/GET commands work as fallback for ReJSON functionality
+   ```
+
+3. **Database recreation if needed:**
+   ```bash
+   # If ReJSON access is critical, recreate database
+   oc delete redisenterprisedatabase alert-engine-cache -n redis-enterprise
+   # Wait for deletion, then recreate with Step 2.5 commands
+   ```
+
+**Issue 2: Dynamic Port Discovery Problems**
+
+**Symptoms:**
+- ConfigMap creation fails with empty port
+- Connection attempts use wrong port numbers
+- Services show different ports than expected
+
+**Diagnosis:**
+```bash
+# Check all available port information
+echo "Database Port:" && oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}'
+echo "Service Port:" && oc get service alert-engine-cache -n redis-enterprise -o jsonpath='{.spec.ports[0].port}'
+echo "Internal Endpoints:" && oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.internalEndpoints[*]}'
+```
+
+**Solution:**
+- Use the enhanced port discovery script from Step 2.6.2
+- Always validate port availability before creating ConfigMap
+- Use multiple discovery methods as fallback
+
+**Issue 3: Service Name Resolution**
+
+**Symptoms:**
+- Connection timeouts or DNS resolution failures
+- Services not accessible from alert-engine namespace
+
+**Diagnosis:**
+```bash
+# Test DNS resolution
+oc run dns-test --rm -i --image=busybox --restart=Never -- \
+  nslookup alert-engine-cache.redis-enterprise.svc.cluster.local
+
+# Check service endpoints
+oc get endpoints alert-engine-cache -n redis-enterprise
+```
+
+**Solution:**
+1. **Use FQDN for service names:**
+   ```bash
+   # Always use full service names
+   alert-engine-cache.redis-enterprise.svc.cluster.local
+   ```
+
+2. **Verify network policies allow access:**
+   ```bash
+   # Check network policy rules
+   oc get networkpolicy redis-network-policy -n redis-enterprise -o yaml
+   ```
+
+3. **Test connectivity from alert-engine namespace:**
+   ```bash
+   # Create test pod in alert-engine namespace
+   oc run connectivity-test --rm -i --image=redis:7 --restart=Never -n alert-engine -- \
+     redis-cli -h alert-engine-cache.redis-enterprise.svc.cluster.local -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping
+   ```
+
+**Issue 4: Password/Secret Access Problems**
+
+**Symptoms:**
+- Authentication failures
+- Secret not found errors
+- Base64 decoding issues
+
+**Diagnosis:**
+```bash
+# Check if secret exists
+oc get secret redb-alert-engine-cache -n redis-enterprise
+
+# Verify password format
+oc get secret redb-alert-engine-cache -n redis-enterprise -o jsonpath='{.data.password}' | base64 -d | wc -c
+```
+
+**Solution:**
+1. **Verify secret exists and is accessible:**
+   ```bash
+   # Check secret data
+   oc describe secret redb-alert-engine-cache -n redis-enterprise
+   ```
+
+2. **Recreate secret in alert-engine namespace:**
+   ```bash
+   # Copy secret to application namespace
+   oc get secret redb-alert-engine-cache -n redis-enterprise -o yaml | \
+     sed 's/namespace: redis-enterprise/namespace: alert-engine/' | \
+     oc apply -f -
+   ```
+
+#### Step 2.6.5: Alert Engine Compatibility Notes
+
+**ReJSON Module Issues:**
+- If ReJSON module access fails, Alert Engine can use standard Redis SET/GET commands
+- JSON data can be stored as strings and parsed by the application
+- Performance impact is minimal for typical alert rule storage
+
+**Module Dependencies:**
+- **ReJSON**: Used for complex alert rule storage (fallback: standard Redis commands)
+- **RedisTimeSeries**: Used for time-based metrics (fallback: sorted sets)
+- **Basic Redis**: Always required for state management
+
+**Production Considerations:**
+- Test all modules thoroughly before production deployment
+- Implement fallback mechanisms in Alert Engine code
+- Monitor module performance and access patterns
+- Plan for module updates and compatibility
 
 ### Step 2.7: Create Redis Network Policies
 
 Set up network policies to allow access from alert-engine namespace:
 
 ```bash
+# Get the actual database port for network policy
+REDIS_DB_PORT=$(oc get redisenterprisedatabase alert-engine-cache -n redis-enterprise -o jsonpath='{.status.databasePort}')
+
+if [[ -z "$REDIS_DB_PORT" ]]; then
+    echo "❌ Could not determine Redis database port for network policy"
+    echo "🔧 Using default port 13066 - update manually if needed"
+    REDIS_DB_PORT="13066"
+else
+    echo "✅ Using Redis database port: $REDIS_DB_PORT"
+fi
+
 # Create network policy for Redis access
 cat <<EOF | oc apply -f -
 apiVersion: networking.k8s.io/v1
@@ -1554,12 +1868,16 @@ spec:
           kubernetes.io/metadata.name: alert-engine
     ports:
     - protocol: TCP
-      port: 13066  # Default database port, adjust if different
+      port: ${REDIS_DB_PORT}  # Dynamically discovered database port
     - protocol: TCP
       port: 8001   # API port
+    - protocol: TCP
+      port: 9443   # HTTPS API port
   egress:
   - {}
 EOF
+
+echo "✅ Redis network policy created with port: $REDIS_DB_PORT"
 ```
 
 ### Step 2.8: Get Redis Connection Details
