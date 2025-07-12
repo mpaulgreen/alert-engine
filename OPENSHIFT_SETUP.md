@@ -19,6 +19,7 @@ This guide provides step-by-step instructions to set up the required infrastruct
 5. [Step 2: Redis Cluster (HA) Setup](#2-redis-cluster-ha-setup)
    - [2.1: Create Redis Cluster Namespace](#step-21-create-redis-cluster-namespace)
    - [2.2: Deploy Redis Cluster](#step-22-deploy-redis-cluster)
+     - [Troubleshooting Common Redis Cluster Issues](#-troubleshooting-common-redis-cluster-issues)
    - [2.3: Verify Redis Cluster Installation](#step-23-verify-redis-cluster-installation)
    - [2.4: Test Redis Cluster Connectivity](#step-24-test-redis-cluster-connectivity)
    - [2.5: Create Redis Network Policies](#step-25-create-redis-network-policies)
@@ -514,6 +515,13 @@ metadata:
   name: redis-cluster-config
   namespace: redis-cluster
 data:
+  update-node.sh: |
+    #!/bin/sh
+    REDIS_NODES="/data/nodes.conf"
+    if [ -f "\${REDIS_NODES}" ]; then
+      sed -i -e "/myself/ s/[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/\${POD_IP}/" \${REDIS_NODES}
+    fi
+    exec "\$@"
   redis.conf: |
     cluster-enabled yes
     cluster-require-full-coverage no
@@ -610,31 +618,6 @@ spec:
       resources:
         requests:
           storage: 1Gi
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: redis-cluster-config
-  namespace: redis-cluster
-data:
-  update-node.sh: |
-    #!/bin/sh
-    REDIS_NODES="/data/nodes.conf"
-    sed -i -e "/myself/ s/[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/${POD_IP}/" ${REDIS_NODES}
-    exec "$@"
-  redis.conf: |
-    cluster-enabled yes
-    cluster-require-full-coverage no
-    cluster-node-timeout 15000
-    cluster-config-file /data/nodes.conf
-    cluster-migration-barrier 1
-    appendonly yes
-    protected-mode no
-    bind 0.0.0.0
-    port 6379
-    tcp-keepalive 60
-    maxmemory 256mb
-    maxmemory-policy allkeys-lru
 EOF
 ```
 
@@ -648,24 +631,77 @@ oc wait --for=condition=ready pod -l app=redis-cluster -n redis-cluster --timeou
 oc get pods -n redis-cluster -l app=redis-cluster
 ```
 
+#### 🔧 Troubleshooting Common Redis Cluster Issues
+
+**If you see CrashLoopBackOff or pods not starting:**
+
+1. **Check pod logs for errors:**
+   ```bash
+   oc logs redis-cluster-0 -n redis-cluster
+   ```
+
+2. **Common Issue: "sed: -i requires an argument" or "Permission denied"**
+   
+   This indicates the `update-node.sh` script is incorrect. The script should include:
+   - Proper file existence check
+   - Correct variable escaping
+   - Proper exec command
+   
+   **Resolution:** The configuration above has been updated with the correct script. If you used an older version, delete and recreate the StatefulSet:
+   ```bash
+   oc delete statefulset redis-cluster -n redis-cluster
+   # Then reapply the corrected YAML above
+   ```
+
+3. **Check Storage Class availability:**
+   ```bash
+   oc get storageclass
+   # If gp3-csi is not available, update the storageClassName in the YAML
+   ```
+
+4. **Verify ConfigMap was created correctly:**
+   ```bash
+   oc get configmap redis-cluster-config -n redis-cluster -o yaml
+   ```
+
+**Expected healthy pod status:**
+```
+NAME              READY   STATUS    RESTARTS   AGE
+redis-cluster-0   1/1     Running   0          2m
+redis-cluster-1   1/1     Running   0          2m
+redis-cluster-2   1/1     Running   0          2m
+redis-cluster-3   1/1     Running   0          2m
+redis-cluster-4   1/1     Running   0          2m
+redis-cluster-5   1/1     Running   0          2m
+```
+
 ### Step 2.3: Verify Redis Cluster Installation
 
 **Initialize the Redis cluster:**
 
 ```bash
-# Get the Redis cluster nodes
+# Get the Redis cluster nodes IP addresses
 REDIS_NODES=$(oc get pods -l app=redis-cluster -n redis-cluster -o jsonpath='{range.items[*]}{.status.podIP}:6379 ')
 
-# Initialize the cluster
-oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli --cluster create --cluster-replicas 1 $REDIS_NODES --cluster-yes
+# Display the nodes that will be used for cluster creation
+echo "Redis cluster nodes: $REDIS_NODES"
+
+# Initialize the cluster with explicit node list (more reliable than using variables)
+oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli --cluster create \
+$(oc get pods -l app=redis-cluster -n redis-cluster -o jsonpath='{range.items[*]}{.status.podIP}:6379 ') \
+--cluster-replicas 1 --cluster-yes
 
 # Verify cluster status
+echo "=== Cluster Status ==="
 oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli cluster info
+
+echo "=== Cluster Nodes ==="
 oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli cluster nodes
 ```
 
 **Expected Output:**
 ```
+=== Cluster Status ===
 cluster_state:ok
 cluster_slots_assigned:16384
 cluster_slots_ok:16384
@@ -673,6 +709,36 @@ cluster_slots_pfail:0
 cluster_slots_fail:0
 cluster_known_nodes:6
 cluster_size:3
+
+=== Cluster Nodes ===
+<node-id> <ip>:6379@16379 master - 0 <timestamp> 1 connected 0-5460
+<node-id> <ip>:6379@16379 master - 0 <timestamp> 2 connected 5461-10922
+<node-id> <ip>:6379@16379 master - 0 <timestamp> 3 connected 10923-16383
+<node-id> <ip>:6379@16379 slave <master-id> 0 <timestamp> 1 connected
+<node-id> <ip>:6379@16379 slave <master-id> 0 <timestamp> 2 connected  
+<node-id> <ip>:6379@16379 slave <master-id> 0 <timestamp> 3 connected
+```
+
+**✅ Success Criteria:**
+- `cluster_state:ok` indicates the cluster is healthy
+- `cluster_slots_assigned:16384` means all hash slots are assigned
+- `cluster_known_nodes:6` confirms all 6 nodes are recognized
+- `cluster_size:3` shows 3 master nodes (with 3 replicas)
+
+**❌ Troubleshooting cluster initialization:**
+
+If cluster creation fails:
+```bash
+# Check if all pods are running
+oc get pods -n redis-cluster -l app=redis-cluster
+
+# Check individual pod logs
+oc logs redis-cluster-0 -n redis-cluster
+
+# Try manual initialization if automatic fails
+oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli --cluster create \
+<IP1>:6379 <IP2>:6379 <IP3>:6379 <IP4>:6379 <IP5>:6379 <IP6>:6379 \
+--cluster-replicas 1 --cluster-yes
 ```
 
 ### Step 2.4: Test Redis Cluster Connectivity
@@ -777,6 +843,14 @@ echo "Cluster Nodes:"
 oc get pods -l app=redis-cluster -n redis-cluster -o jsonpath='{range .items[*]}{.metadata.name}.redis-cluster.redis-cluster.svc.cluster.local:6379{"\n"}{end}'
 echo "Service: redis-cluster-access.redis-cluster.svc.cluster.local:6379"
 echo "ConfigMap: redis-config (in alert-engine namespace)"
+
+# Quick validation summary
+echo ""
+echo "🔍 Quick Redis Cluster Validation:"
+echo "1. All pods running: $(oc get pods -l app=redis-cluster -n redis-cluster --no-headers | grep Running | wc -l)/6"
+echo "2. Cluster state: $(oc exec -it redis-cluster-0 -n redis-cluster -- redis-cli cluster info | grep cluster_state)"
+echo "3. Network policy: $(oc get networkpolicy redis-cluster-network-policy -n redis-cluster --no-headers | wc -l) created"
+echo "4. ConfigMap: $(oc get configmap redis-config -n alert-engine --no-headers | wc -l) created"
 ```
 
 ## 3. OpenShift Logging and Log Forwarding Setup
