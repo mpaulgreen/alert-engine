@@ -48,7 +48,7 @@ count_resources() {
 }
 
 echo "1. 🏠 Checking Namespaces..."
-for ns in alert-engine amq-streams-kafka redis-enterprise openshift-logging; do
+for ns in alert-engine amq-streams-kafka redis-cluster openshift-logging; do
     if oc get namespace "$ns" >/dev/null 2>&1; then
         echo "  ✅ Namespace $ns exists"
     else
@@ -60,8 +60,6 @@ echo ""
 echo "2. 🚨 Checking Alert Engine Resources..."
 check_resource "deployment" "continuous-log-generator" "alert-engine"
 check_resource "configmap" "redis-config" "alert-engine"
-check_resource "secret" "redis-password" "alert-engine"
-check_resource "secret" "redb-alert-engine-cache" "alert-engine"
 check_resource "serviceaccount" "alert-engine-sa" "alert-engine"
 check_resource "clusterrole" "alert-engine-role" ""
 check_resource "clusterrolebinding" "alert-engine-binding" ""
@@ -75,13 +73,12 @@ check_resource "subscription" "amq-streams" "amq-streams-kafka"
 check_resource "operatorgroup" "amq-streams-og" "amq-streams-kafka"
 echo ""
 
-echo "4. 🔴 Checking Redis Enterprise Resources..."
-check_resource "redisenterprisecluster" "rec-alert-engine" "redis-enterprise"
-check_resource "redisenterprisedatabase" "alert-engine-cache" "redis-enterprise"
-check_resource "networkpolicy" "redis-network-policy" "redis-enterprise"
-check_resource "subscription" "redis-enterprise-operator" "redis-enterprise"
-check_resource "operatorgroup" "redis-enterprise-og" "redis-enterprise"
-check_resource "securitycontextconstraints" "redis-enterprise-scc" ""
+echo "4. 🔴 Checking Redis Cluster Resources..."
+check_resource "statefulset" "redis-cluster" "redis-cluster"
+check_resource "service" "redis-cluster" "redis-cluster"
+check_resource "service" "redis-cluster-access" "redis-cluster"
+check_resource "configmap" "redis-cluster-config" "redis-cluster"
+check_resource "networkpolicy" "redis-cluster-network-policy" "redis-cluster"
 echo ""
 
 echo "5. 📝 Checking Logging Resources..."
@@ -96,14 +93,12 @@ echo ""
 echo "6. 📦 Checking Operator CSVs..."
 echo "  AMQ Streams CSVs:"
 oc get csv -n amq-streams-kafka --no-headers 2>/dev/null | grep amq | awk '{print "    " $1 " - " $4}'
-echo "  Redis Enterprise CSVs:"
-oc get csv -n redis-enterprise --no-headers 2>/dev/null | grep redis | awk '{print "    " $1 " - " $4}'
-echo "  Logging CSVs:"
+echo "  OpenShift Logging CSVs:"
 oc get csv -n openshift-logging --no-headers 2>/dev/null | grep cluster-logging | awk '{print "    " $1 " - " $4}'
 echo ""
 
 echo "7. 🔧 Checking Running Pods..."
-for ns in alert-engine amq-streams-kafka redis-enterprise openshift-logging; do
+for ns in alert-engine amq-streams-kafka redis-cluster openshift-logging; do
     if oc get namespace "$ns" >/dev/null 2>&1; then
         echo "  Namespace $ns:"
         pod_count=$(oc get pods -n "$ns" --no-headers 2>/dev/null | wc -l)
@@ -119,7 +114,7 @@ done
 echo ""
 
 echo "8. 💾 Checking Persistent Volumes and Claims..."
-for ns in amq-streams-kafka redis-enterprise openshift-logging alert-engine; do
+for ns in amq-streams-kafka redis-cluster openshift-logging alert-engine; do
     if oc get namespace "$ns" >/dev/null 2>&1; then
         pvc_count=$(oc get pvc -n "$ns" --no-headers 2>/dev/null | wc -l)
         if [[ "$pvc_count" -gt 0 ]]; then
@@ -131,7 +126,7 @@ done
 echo ""
 
 echo "9. 🌐 Checking Services..."
-for ns in amq-streams-kafka redis-enterprise openshift-logging alert-engine; do
+for ns in amq-streams-kafka redis-cluster openshift-logging alert-engine; do
     if oc get namespace "$ns" >/dev/null 2>&1; then
         svc_count=$(oc get svc -n "$ns" --no-headers 2>/dev/null | wc -l)
         if [[ "$svc_count" -gt 0 ]]; then
@@ -143,7 +138,7 @@ done
 echo ""
 
 echo "10. 📋 Checking Install Plans..."
-for ns in amq-streams-kafka redis-enterprise openshift-logging; do
+for ns in amq-streams-kafka openshift-logging; do
     if oc get namespace "$ns" >/dev/null 2>&1; then
         ip_count=$(oc get installplan -n "$ns" --no-headers 2>/dev/null | wc -l)
         if [[ "$ip_count" -gt 0 ]]; then
@@ -154,12 +149,26 @@ for ns in amq-streams-kafka redis-enterprise openshift-logging; do
 done
 echo ""
 
+echo "11. 🗂️ Checking ConfigMaps and Secrets..."
+for ns in alert-engine redis-cluster; do
+    if oc get namespace "$ns" >/dev/null 2>&1; then
+        cm_count=$(oc get configmap -n "$ns" --no-headers 2>/dev/null | wc -l)
+        secret_count=$(oc get secret -n "$ns" --no-headers 2>/dev/null | grep -v "default-token" | wc -l)
+        if [[ "$cm_count" -gt 0 ]] || [[ "$secret_count" -gt 0 ]]; then
+            echo "  Namespace $ns:"
+            [[ "$cm_count" -gt 0 ]] && echo "    ConfigMaps: $cm_count"
+            [[ "$secret_count" -gt 0 ]] && echo "    Secrets: $secret_count"
+        fi
+    fi
+done
+echo ""
+
 # Summary
 echo "=== 📊 Summary ==="
 echo ""
 
 total_resources=0
-for ns in alert-engine amq-streams-kafka redis-enterprise openshift-logging; do
+for ns in alert-engine amq-streams-kafka redis-cluster openshift-logging; do
     if oc get namespace "$ns" >/dev/null 2>&1; then
         ns_resources=$(oc get all -n "$ns" --no-headers 2>/dev/null | wc -l)
         echo "Namespace $ns: $ns_resources resources"
@@ -175,7 +184,10 @@ fi
 if oc get clusterrolebinding alert-engine-binding >/dev/null 2>&1; then
     cluster_resources=$((cluster_resources + 1))
 fi
-if oc get securitycontextconstraints redis-enterprise-scc >/dev/null 2>&1; then
+if oc get clusterrolebinding log-collector-application-logs >/dev/null 2>&1; then
+    cluster_resources=$((cluster_resources + 1))
+fi
+if oc get clusterrolebinding log-collector-write-logs >/dev/null 2>&1; then
     cluster_resources=$((cluster_resources + 1))
 fi
 
