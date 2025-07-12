@@ -20,6 +20,7 @@ NC='\033[0m' # No Color
 COMPOSE_FILE="docker-compose.test.yml"
 CONTAINER_ENGINE="docker"
 PROJECT_NAME="alert-engine-test"
+SKIP_HEALTH_CHECK="${SKIP_HEALTH_CHECK:-false}"
 
 # Function to print colored output
 print_status() {
@@ -65,10 +66,25 @@ start_containers() {
     
     # Wait for services to be healthy
     print_status $YELLOW "Waiting for services to be ready..."
-    sleep 30
+    print_status $YELLOW "  Waiting 60 seconds for initial container startup..."
+    sleep 60
     
-    # Check service health
-    check_service_health
+    # Check Docker container health status first
+    print_status $YELLOW "Checking Docker container health status..."
+    docker ps --filter "name=${PROJECT_NAME}" --format "table {{.Names}}\t{{.Status}}"
+    
+    # Check service health (can be skipped with SKIP_HEALTH_CHECK=true)
+    if [ "$SKIP_HEALTH_CHECK" = "true" ]; then
+        print_status $YELLOW "⚠️  Skipping health check (SKIP_HEALTH_CHECK=true)"
+        print_status $YELLOW "  Proceeding directly to tests..."
+    else
+        if ! check_service_health; then
+            print_status $RED "❌ Health check failed!"
+            print_status $YELLOW "💡 You can bypass health checks by setting: SKIP_HEALTH_CHECK=true"
+            print_status $YELLOW "💡 Or run tests directly with: go test -tags=integration -v ./internal/api/tests/..."
+            return 1
+        fi
+    fi
 }
 
 # Function to stop test containers
@@ -91,21 +107,64 @@ check_service_health() {
         CONTAINER_EXEC_CMD="podman"
     fi
     
-    # Check Kafka using external port
-    if timeout 5 bash -c "</dev/tcp/localhost/9093" &> /dev/null; then
-        print_status $GREEN "  ✅ Kafka is healthy"
-    else
-        print_status $RED "  ❌ Kafka is not responding"
+    # Enhanced Kafka health check with retries
+    print_status $YELLOW "  Checking Kafka health (with retries)..."
+    local kafka_ready=false
+    local max_attempts=12  # 2 minutes total (12 * 10s)
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ] && [ "$kafka_ready" = false ]; do
+        print_status $YELLOW "    Attempt $attempt/$max_attempts: Testing Kafka connectivity..."
+        
+        # Method 1: Check if Kafka is accepting connections
+        if timeout 10 bash -c "</dev/tcp/localhost/9093" &> /dev/null; then
+            print_status $YELLOW "    TCP connection successful, testing Kafka API..."
+            
+            # Method 2: Try to list topics using containerized kafka-topics command
+            if timeout 15 docker exec "${PROJECT_NAME}-kafka-test-1" \
+                kafka-topics --bootstrap-server localhost:9092 --list &> /dev/null; then
+                print_status $GREEN "  ✅ Kafka is healthy and API is responding"
+                kafka_ready=true
+                break
+            else
+                print_status $YELLOW "    Kafka API not ready yet..."
+            fi
+        else
+            print_status $YELLOW "    Kafka TCP connection not ready..."
+        fi
+        
+        if [ $attempt -lt $max_attempts ]; then
+            print_status $YELLOW "    Waiting 10 seconds before retry..."
+            sleep 10
+        fi
+        attempt=$((attempt + 1))
+    done
+    
+    if [ "$kafka_ready" = false ]; then
+        print_status $RED "  ❌ Kafka is not responding after $max_attempts attempts"
+        print_status $YELLOW "  📋 Showing Kafka logs for debugging:"
+        docker logs "${PROJECT_NAME}-kafka-test-1" --tail 50
         return 1
     fi
     
-    # Check Redis using external port
-    if timeout 5 bash -c "</dev/tcp/localhost/6380" &> /dev/null; then
+    # Enhanced Redis health check
+    print_status $YELLOW "  Checking Redis health..."
+    if timeout 10 redis-cli -h localhost -p 6380 -a testpass ping &> /dev/null; then
         print_status $GREEN "  ✅ Redis is healthy"
     else
-        print_status $RED "  ❌ Redis is not responding"
-        return 1
+        # Fallback to TCP check
+        if timeout 5 bash -c "</dev/tcp/localhost/6380" &> /dev/null; then
+            print_status $GREEN "  ✅ Redis is responding (TCP check)"
+        else
+            print_status $RED "  ❌ Redis is not responding"
+            print_status $YELLOW "  📋 Showing Redis logs for debugging:"
+            docker logs "${PROJECT_NAME}-redis-test-1" --tail 20
+            return 1
+        fi
     fi
+    
+    print_status $GREEN "🎉 All services are healthy!"
+    return 0
 }
 
 # Function to run integration tests
@@ -117,8 +176,8 @@ run_integration_tests() {
     export REDIS_ADDR="localhost:6380"
     export REDIS_PASSWORD="testpass"
     
-    # Run integration tests with build tag
-    if go test -tags=integration -v ./internal/kafka/tests/...; then
+    # Run integration tests with build tag and proper timeouts
+    if go test -tags=integration -v ./internal/kafka/tests/... -timeout=5m; then
         print_status $GREEN "✅ Kafka integration tests PASSED"
     else
         print_status $RED "❌ Kafka integration tests FAILED"
@@ -141,10 +200,12 @@ run_integration_tests() {
         return 1
     fi
     
-    if go test -tags=integration -v ./internal/api/tests/...; then
+    # Run API integration tests using HTTP server (no external dependencies)
+    if go test -tags=integration -v ./internal/api/tests/... -timeout=5m; then
         print_status $GREEN "✅ API integration tests PASSED"
     else
-        print_status $YELLOW "⚠️  API integration tests not found or skipped"
+        print_status $RED "❌ API integration tests FAILED"
+        return 1
     fi
 }
 
@@ -158,8 +219,8 @@ run_tests_in_container() {
             # Install dependencies
             go mod download
             
-            # Run integration tests
-            go test -tags=integration -v ./internal/kafka/tests/...
+            # Run integration tests with proper timeouts
+            go test -tags=integration -v ./internal/kafka/tests/... -timeout=5m
             
             # Run storage integration tests (using testcontainers)
             if [ -d './internal/storage/tests' ]; then
@@ -171,8 +232,9 @@ run_tests_in_container() {
                 go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m
             fi
             
+            # Run API integration tests (using HTTP server)
             if [ -d './internal/api/tests' ]; then
-                go test -tags=integration -v ./internal/api/tests/...
+                go test -tags=integration -v ./internal/api/tests/... -timeout=5m
             fi
         "
 }
@@ -186,7 +248,7 @@ run_performance_tests() {
     export REDIS_PASSWORD="testpass"
     
     # Run Kafka performance tests
-    if go test -tags=integration -bench=. -benchmem ./internal/kafka/tests/...; then
+    if go test -tags=integration -bench=. -benchmem ./internal/kafka/tests/... -timeout=10m; then
         print_status $GREEN "✅ Kafka performance tests completed"
     else
         print_status $YELLOW "⚠️  Kafka performance tests not found or skipped"
@@ -204,6 +266,13 @@ run_performance_tests() {
         print_status $GREEN "✅ Notifications performance tests completed"
     else
         print_status $YELLOW "⚠️  Notifications performance tests not found or skipped"
+    fi
+    
+    # Run API performance tests
+    if go test -tags=integration -bench=. -benchmem ./internal/api/tests/... -timeout=5m; then
+        print_status $GREEN "✅ API performance tests completed"
+    else
+        print_status $YELLOW "⚠️  API performance tests not found or skipped"
     fi
 }
 
@@ -284,6 +353,16 @@ show_usage() {
     echo "Environment Variables:"
     echo "  COMPOSE_FILE         Docker compose file (default: docker-compose.test.yml)"
     echo "  PROJECT_NAME         Container project name (default: alert-engine-test)"
+    echo "  SKIP_HEALTH_CHECK    Skip service health checks (default: false)"
+    echo ""
+    echo "Troubleshooting:"
+    echo "  If Kafka health check fails:"
+    echo "    SKIP_HEALTH_CHECK=true $0"
+    echo "  Or run tests directly with proper timeouts:"
+    echo "    go test -tags=integration -v ./internal/api/tests/... -timeout=5m"
+    echo "    go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m"
+    echo "    go test -tags=integration -v ./internal/storage/tests/... -timeout=5m"
+    echo "    go test -tags=integration -v ./internal/kafka/tests/... -timeout=5m"
     echo ""
 }
 

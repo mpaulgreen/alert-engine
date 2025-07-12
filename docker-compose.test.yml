@@ -57,10 +57,11 @@ services:
       KAFKA_LOG_SEGMENT_BYTES: 1048576
       KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 30000
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
+      test: ["CMD", "bash", "-c", "kafka-broker-api-versions --bootstrap-server localhost:9092 && kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 15s
+      timeout: 15s
+      retries: 12
+      start_period: 60s
     networks:
       - test-network
 

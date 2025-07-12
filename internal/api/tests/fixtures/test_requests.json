@@ -1,0 +1,140 @@
+{
+  "create_rule_request": {
+    "name": "High Error Rate",
+    "description": "Alert when error rate exceeds threshold",
+    "enabled": true,
+    "conditions": {
+      "log_level": "ERROR",
+      "namespace": "production",
+      "service": "api-service",
+      "keywords": ["error", "exception", "failed"],
+      "threshold": 10,
+      "time_window": "5m",
+      "operator": "gt"
+    },
+    "actions": {
+      "slack_webhook": "https://hooks.slack.com/services/test/webhook/url",
+      "channel": "#alerts",
+      "severity": "high"
+    }
+  },
+  "create_rule_invalid_request": {
+    "name": "",
+    "description": "Alert with invalid data",
+    "enabled": true,
+    "conditions": {
+      "log_level": "INVALID",
+      "threshold": -1,
+      "time_window": "invalid",
+      "operator": "unknown"
+    },
+    "actions": {
+      "slack_webhook": "invalid-url",
+      "severity": "invalid"
+    }
+  },
+  "update_rule_request": {
+    "name": "Updated High Error Rate",
+    "description": "Updated alert when error rate exceeds threshold",
+    "enabled": false,
+    "conditions": {
+      "log_level": "ERROR",
+      "namespace": "staging",
+      "service": "updated-service",
+      "keywords": ["error", "exception"],
+      "threshold": 15,
+      "time_window": "10m",
+      "operator": "gte"
+    },
+    "actions": {
+      "slack_webhook": "https://hooks.slack.com/services/updated/webhook/url",
+      "channel": "#updated-alerts",
+      "severity": "medium"
+    }
+  },
+  "bulk_create_rules_request": {
+    "rules": [
+      {
+        "name": "Database Connection Error",
+        "description": "Alert for database connection issues",
+        "enabled": true,
+        "conditions": {
+          "log_level": "ERROR",
+          "namespace": "production",
+          "service": "database",
+          "keywords": ["connection", "timeout", "database"],
+          "threshold": 3,
+          "time_window": "2m",
+          "operator": "gt"
+        },
+        "actions": {
+          "slack_webhook": "https://hooks.slack.com/services/db/webhook/url",
+          "channel": "#db-alerts",
+          "severity": "critical"
+        }
+      },
+      {
+        "name": "Memory Usage Alert",
+        "description": "Alert for high memory usage",
+        "enabled": true,
+        "conditions": {
+          "log_level": "WARN",
+          "namespace": "production",
+          "service": "memory-monitor",
+          "keywords": ["memory", "usage", "high"],
+          "threshold": 5,
+          "time_window": "1m",
+          "operator": "gt"
+        },
+        "actions": {
+          "slack_webhook": "https://hooks.slack.com/services/memory/webhook/url",
+          "channel": "#memory-alerts",
+          "severity": "medium"
+        }
+      }
+    ]
+  },
+  "rule_filter_request": {
+    "enabled": true,
+    "severity": "high",
+    "namespace": "production",
+    "service": "api-service"
+  },
+  "test_rule_request": {
+    "rule": {
+      "name": "Test Rule",
+      "description": "Test rule for validation",
+      "enabled": true,
+      "conditions": {
+        "log_level": "ERROR",
+        "namespace": "test",
+        "service": "test-service",
+        "keywords": ["test", "error"],
+        "threshold": 1,
+        "time_window": "1m",
+        "operator": "gt"
+      },
+      "actions": {
+        "slack_webhook": "https://hooks.slack.com/services/test/webhook/url",
+        "channel": "#test-alerts",
+        "severity": "low"
+      }
+    },
+    "sample_logs": [
+      {
+        "timestamp": "2023-12-01T12:00:00Z",
+        "level": "ERROR",
+        "message": "test error occurred",
+        "service": "test-service",
+        "namespace": "test",
+        "kubernetes_info": {
+          "pod_name": "test-pod",
+          "container_name": "test-container",
+          "labels": {
+            "app": "test-service"
+          }
+        }
+      }
+    ]
+  }
+} 
