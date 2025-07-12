@@ -185,7 +185,7 @@ NAME                                                     READY   STATUS    RESTA
 amq-streams-cluster-operator-v2.9.1-0-5f8bc76fb8-6p2bl   1/1     Running   0          2m
 ```
 
-#### Check Operator Logs
+#### Step 1.2.6: Check Operator Logs
 
 ```bash
 # Check operator logs for any issues
@@ -195,7 +195,7 @@ oc logs deployment/strimzi-cluster-operator -n amq-streams-kafka
 oc logs -f deployment/strimzi-cluster-operator -n amq-streams-kafka
 ```
 
-#### Verify CRDs are Installed
+#### Step 1.2.7: Verify CRDs are Installed
 
 The AMQ Streams operator should install several Custom Resource Definitions:
 
@@ -222,7 +222,7 @@ strimzipodsets.core.strimzi.io
 ```
 
 
-#### Step 1.2.6: Troubleshooting Common Issues
+#### Step 1.2.8: Troubleshooting Common Issues
 
 Based on real-world experience, here are the most common issues and their solutions:
 
@@ -297,7 +297,7 @@ oc get events -n amq-streams-kafka --sort-by='.lastTimestamp'
 oc get packagemanifest amq-streams -n openshift-marketplace
 ```
 
-#### Step 1.2.7: Quick One-Liner Validation
+#### Step 1.2.9: Quick One-Liner Validation
 
 For a quick final check, you can use this one-liner:
 
@@ -476,75 +476,6 @@ alert-kafka-cluster-zookeeper-2                         1/1     Running   0     
 alert-kafka-cluster-entity-operator-xxxxxxxxx-xxxxx     3/3     Running   0          4m
 ```
 
-### Step 1.6: Create Kafka Network Policies
-
-Set up network policies to allow access from alert-engine and openshift-logging namespaces:
-
-```bash
-# Create network policy for Kafka access
-cat <<EOF | oc apply -f -
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: kafka-network-policy
-  namespace: amq-streams-kafka
-spec:
-  podSelector:
-    matchLabels:
-      strimzi.io/cluster: alert-kafka-cluster
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: alert-engine
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: openshift-logging
-    ports:
-    - protocol: TCP
-      port: 9092
-    - protocol: TCP
-      port: 9093
-  egress:
-  - {}
-EOF
-```
-
-### Step 1.7: Get Kafka Connection Details
-
-```bash
-# Get Kafka connection details for application configuration
-echo "=== Kafka Connection Details ==="
-echo "Bootstrap Servers: alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
-echo "Topic: application-logs"
-echo "Service IP:"
-oc get svc alert-kafka-cluster-kafka-bootstrap -n amq-streams-kafka -o jsonpath='{.spec.clusterIP}:{.spec.ports[0].port}'
-echo ""
-```
-
-**Common Issue: Version Compatibility**
-
-If the Kafka cluster shows `NotReady` status, check for version errors:
-
-```bash
-# Check Kafka cluster conditions
-oc get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
-
-# Check operator logs for version errors
-oc logs deployment/amq-streams-cluster-operator-v2.9.1-0 -n amq-streams-kafka | grep -i "version\|error"
-```
-
-**Error Example:**
-```
-UnsupportedKafkaVersionException: Unsupported Kafka.spec.kafka.version: 3.7.0. 
-Supported versions are: [3.8.0, 3.9.0]
-```
-
-**Solution:** Update the Kafka version in your cluster specification to a supported version (3.9.0 recommended).
-
 ### Step 1.6: Test Kafka Producer-Consumer Flow
 
 This step verifies that messages can be successfully sent and received through the Kafka cluster.
@@ -590,6 +521,75 @@ oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-co
 - If producer fails: Check Kafka cluster status and topic existence
 - If consumer hangs: Verify topic has messages with `oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-topics.sh --bootstrap-server localhost:9092 --topic application-logs --describe`
 - If no messages: Check producer succeeded and topic configuration
+
+### Step 1.7: Create Kafka Network Policies
+
+Set up network policies to allow access from alert-engine and openshift-logging namespaces:
+
+```bash
+# Create network policy for Kafka access
+cat <<EOF | oc apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kafka-network-policy
+  namespace: amq-streams-kafka
+spec:
+  podSelector:
+    matchLabels:
+      strimzi.io/cluster: alert-kafka-cluster
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: alert-engine
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: openshift-logging
+    ports:
+    - protocol: TCP
+      port: 9092
+    - protocol: TCP
+      port: 9093
+  egress:
+  - {}
+EOF
+```
+
+### Step 1.8: Get Kafka Connection Details
+
+```bash
+# Get Kafka connection details for application configuration
+echo "=== Kafka Connection Details ==="
+echo "Bootstrap Servers: alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
+echo "Topic: application-logs"
+echo "Service IP:"
+oc get svc alert-kafka-cluster-kafka-bootstrap -n amq-streams-kafka -o jsonpath='{.spec.clusterIP}:{.spec.ports[0].port}'
+echo ""
+```
+
+**Common Issue: Version Compatibility**
+
+If the Kafka cluster shows `NotReady` status, check for version errors:
+
+```bash
+# Check Kafka cluster conditions
+oc get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions}' | jq .
+
+# Check operator logs for version errors
+oc logs deployment/amq-streams-cluster-operator-v2.9.1-0 -n amq-streams-kafka | grep -i "version\|error"
+```
+
+**Error Example:**
+```
+UnsupportedKafkaVersionException: Unsupported Kafka.spec.kafka.version: 3.7.0. 
+Supported versions are: [3.8.0, 3.9.0]
+```
+
+**Solution:** Update the Kafka version in your cluster specification to a supported version (3.9.0 recommended).
 
 ## 2. Redis Setup using Redis Enterprise Operator
 
@@ -1576,7 +1576,7 @@ echo "Secret: redis-password (in alert-engine namespace)"
 echo ""
 ```
 
-#### Step 2.9: Complete Redis Enterprise Setup Summary
+### Step 2.9: Complete Redis Enterprise Setup Summary
 
 **✅ Redis Enterprise Setup Complete**
 
@@ -2279,7 +2279,7 @@ echo '{"test":"message"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-
 
 **Note**: The corrected ClusterLogForwarder configuration resolves the Vector bootstrap_servers bug in OpenShift Logging Operator v6.2.3, providing reliable, production-ready log forwarding for Alert Engine processing.
 
-### Step 3.6: Complete Infrastructure Verification
+### Step 3.7: Complete Infrastructure Verification
 
 Run this comprehensive verification to ensure all components are working together:
 
@@ -2360,7 +2360,7 @@ echo "=== Infrastructure Setup Complete ==="
 - Network policies are created
 - Kafka consumer receives test messages with `user_id` field
 
-### Step 3.7: Get All Connection Details
+### Step 3.8: Get All Connection Details
 
 ```bash
 # Get all connection details needed for alert-engine application
