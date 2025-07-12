@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis-test:
     image: redis:7-alpine
@@ -57,10 +55,10 @@ services:
       KAFKA_LOG_SEGMENT_BYTES: 1048576
       KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 30000
     healthcheck:
-      test: ["CMD", "bash", "-c", "kafka-broker-api-versions --bootstrap-server localhost:9092 && kafka-topics --bootstrap-server localhost:9092 --list"]
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:29092", "--list"]
       interval: 15s
-      timeout: 15s
-      retries: 12
+      timeout: 10s
+      retries: 10
       start_period: 60s
     networks:
       - test-network

@@ -69,9 +69,13 @@ start_containers() {
     print_status $YELLOW "  Waiting 60 seconds for initial container startup..."
     sleep 60
     
-    # Check Docker container health status first
-    print_status $YELLOW "Checking Docker container health status..."
-    docker ps --filter "name=${PROJECT_NAME}" --format "table {{.Names}}\t{{.Status}}"
+    # Check container health status first
+    print_status $YELLOW "Checking container health status..."
+    if [ "$CONTAINER_ENGINE" = "podman" ]; then
+        podman ps --filter "name=${PROJECT_NAME}" --format "table {{.Names}}\t{{.Status}}"
+    else
+        docker ps --filter "name=${PROJECT_NAME}" --format "table {{.Names}}\t{{.Status}}"
+    fi
     
     # Check service health (can be skipped with SKIP_HEALTH_CHECK=true)
     if [ "$SKIP_HEALTH_CHECK" = "true" ]; then
@@ -121,8 +125,8 @@ check_service_health() {
             print_status $YELLOW "    TCP connection successful, testing Kafka API..."
             
             # Method 2: Try to list topics using containerized kafka-topics command
-            if timeout 15 docker exec "${PROJECT_NAME}-kafka-test-1" \
-                kafka-topics --bootstrap-server localhost:9092 --list &> /dev/null; then
+            if timeout 15 $CONTAINER_EXEC_CMD exec "${PROJECT_NAME}-kafka-test-1" \
+                kafka-topics --bootstrap-server localhost:29092 --list &> /dev/null; then
                 print_status $GREEN "  ✅ Kafka is healthy and API is responding"
                 kafka_ready=true
                 break
@@ -143,7 +147,7 @@ check_service_health() {
     if [ "$kafka_ready" = false ]; then
         print_status $RED "  ❌ Kafka is not responding after $max_attempts attempts"
         print_status $YELLOW "  📋 Showing Kafka logs for debugging:"
-        docker logs "${PROJECT_NAME}-kafka-test-1" --tail 50
+        $CONTAINER_EXEC_CMD logs "${PROJECT_NAME}-kafka-test-1" --tail 50
         return 1
     fi
     
@@ -158,7 +162,7 @@ check_service_health() {
         else
             print_status $RED "  ❌ Redis is not responding"
             print_status $YELLOW "  📋 Showing Redis logs for debugging:"
-            docker logs "${PROJECT_NAME}-redis-test-1" --tail 20
+            $CONTAINER_EXEC_CMD logs "${PROJECT_NAME}-redis-test-1" --tail 20
             return 1
         fi
     fi
