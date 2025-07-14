@@ -164,6 +164,11 @@ func (lp *LogProcessor) GetMetrics() *ProcessorMetrics {
 	return lp.metrics
 }
 
+// GetAlertEngine returns the alert engine
+func (lp *LogProcessor) GetAlertEngine() AlertEngine {
+	return lp.alertEngine
+}
+
 // HealthCheck checks if the processor is healthy
 func (lp *LogProcessor) HealthCheck() bool {
 	// Check if error rate is too high

@@ -316,7 +316,7 @@ func TestKafkaFactoryIntegration(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 
 		// Create regular processor
-		processor, err := factory.CreateProcessor(kafkaContainer.GetBrokers(), "factory-test", mockAlertEngine)
+		processor, err := factory.CreateProcessor(kafkaContainer.GetBrokers(), "factory-test", "factory-group", mockAlertEngine)
 		require.NoError(t, err)
 		assert.NotNil(t, processor)
 
@@ -328,7 +328,7 @@ func TestKafkaFactoryIntegration(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Create batch processor
-		batchProcessor, err := factory.CreateBatchProcessor(kafkaContainer.GetBrokers(), "factory-test", mockAlertEngine)
+		batchProcessor, err := factory.CreateBatchProcessor(kafkaContainer.GetBrokers(), "factory-test", "factory-group", mockAlertEngine)
 		require.NoError(t, err)
 		assert.NotNil(t, batchProcessor)
 	})
