@@ -52,7 +52,7 @@ go test -tags=integration -v ./internal/storage/tests/... -timeout=5m
 ```
 
 ### Expected Results
-- **Unit Tests**: ~45 tests, all should pass in <30 seconds
+- **Unit Tests**: ~13 tests, all should pass in <30 seconds
 - **Integration Tests**: ~20 test suites, all should pass in <3 minutes
 - **Performance**: Tests should handle 1000+ operations/second
 
@@ -167,13 +167,13 @@ go test -tags=integration -short -v ./internal/storage/tests/...
 ### All Tests
 ```bash
 # Run all tests (unit + integration)
-go test -v ./internal/storage/tests/...
+go test -tags=unit -v ./internal/storage/tests/...
 
 # Run with verbose output
-go test -v ./internal/storage/tests/...
+go test -tags=unit -v ./internal/storage/tests/...
 
 # Run with coverage
-go test -cover ./internal/storage/tests/...
+go test -tags=unit -cover ./internal/storage/tests/...
 ```
 
 ### Specific Test Categories
@@ -194,13 +194,13 @@ go test -tags=integration -v ./internal/storage/tests/ -run TestRedisStore_Integ
 #### Unit Test Script
 ```bash
 # Run unit tests using the provided script
-./scripts/run_unit_tests.sh storage
+./scripts/run_unit_tests.sh
 ```
 
 #### Integration Test Script
 ```bash
 # Run integration tests using the provided script
-./scripts/run_integration_tests.sh storage
+./scripts/run_integration_tests.sh
 ```
 
 ## Test Categories
@@ -386,12 +386,23 @@ podman logs <container_id>
 
 #### Performance Issues
 ```bash
-# Profile tests
-go test -tags=integration -v ./internal/storage/tests/... -cpuprofile=cpu.prof -memprofile=mem.prof
 
-# Analyze profiles
+# 1. Set environment variables (add to ~/.zshrc or ~/.bashrc)
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+export DOCKER_HOST=unix:///var/run/docker.sock
+export TESTCONTAINERS_RYUK_DISABLED=true
+
+# 2. Run profiling command
+go test -tags=integration -v ./internal/storage/tests -cpuprofile=cpu.prof -memprofile=mem.prof
+
+# 3. Analyze profiles
 go tool pprof cpu.prof
 go tool pprof mem.prof
+go tool pprof -top cpu.prof  # Top CPU functions
+go tool pprof -top mem.prof  # Top memory allocations
+go tool pprof -list main cpu.prof    # Show specific function
+go tool pprof -http=:8080 cpu.prof # CPU profile in browser
+go tool pprof -http=:8080 mem.prof # Memory profile in browser
 ```
 
 ### Debug Environment

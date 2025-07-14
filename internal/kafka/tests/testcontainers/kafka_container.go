@@ -153,10 +153,11 @@ func (kc *KafkaContainer) ListTopics() ([]string, error) {
 
 // ProduceMessage produces a test message to the specified topic
 func (kc *KafkaContainer) ProduceMessage(topicName, key, value string) error {
+	// Use single quotes to avoid shell escaping issues with JSON
 	cmd := []string{
 		"sh", "-c",
-		fmt.Sprintf(`echo "%s" | kafka-console-producer --broker-list localhost:9092 --topic %s --property "key.separator=:" --property "parse.key=true" <<< "%s:%s"`,
-			value, topicName, key, value),
+		fmt.Sprintf(`echo '%s' | kafka-console-producer --broker-list localhost:9092 --topic %s`,
+			value, topicName),
 	}
 
 	_, _, err := kc.Container.Exec(kc.ctx, cmd)

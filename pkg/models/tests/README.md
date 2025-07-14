@@ -109,13 +109,13 @@ go mod tidy
 
 ```bash
 # Run all tests in the models package
-go test -v ./pkg/models/tests/...
+go test -tags=unit -v ./pkg/models/tests/...
 
 # Run with coverage
-go test -v -cover ./pkg/models/tests/...
+go test -tags=unit -v -cover ./pkg/models/tests/...
 
 # Generate detailed coverage report
-go test -v -coverprofile=coverage.out ./pkg/models/tests/...
+go test -tags=unit -v -coverprofile=coverage.out ./pkg/models/tests/...
 go tool cover -html=coverage.out -o coverage.html
 ```
 
@@ -123,36 +123,36 @@ go tool cover -html=coverage.out -o coverage.html
 
 ```bash
 # Run only alert model tests
-go test -v ./pkg/models/tests/alert_test.go
+go test -tags=unit -v ./pkg/models/tests/alert_test.go
 
 # Run only log model tests
-go test -v ./pkg/models/tests/log_test.go
+go test -tags=unit -v ./pkg/models/tests/log_test.go
 ```
 
 ### Run Specific Test Functions
 
 ```bash
 # Run specific test function
-go test -v -run TestAlertRule_JSONMarshaling ./pkg/models/tests/...
+go test -tags=unit -v -run TestAlertRule_JSONMarshaling ./pkg/models/tests/...
 
 # Run all JSON marshaling tests
-go test -v -run ".*JSONMarshaling.*" ./pkg/models/tests/...
+go test -tags=unit -v -run ".*JSONMarshaling.*" ./pkg/models/tests/...
 
 # Run all validation tests
-go test -v -run ".*Validation.*" ./pkg/models/tests/...
+go test -tags=unit -v -run ".*Validation.*" ./pkg/models/tests/...
 ```
 
 ### Run with Different Verbosity Levels
 
 ```bash
 # Basic run
-go test ./pkg/models/tests/...
+go test -tags=unit ./pkg/models/tests/...
 
 # Verbose output
-go test -v ./pkg/models/tests/...
+go test -tags=unit -v ./pkg/models/tests/...
 
 # Short mode (skip long-running tests)
-go test -short ./pkg/models/tests/...
+go test -tags=unit -short ./pkg/models/tests/...
 ```
 
 ## Test Categories
@@ -232,10 +232,10 @@ For performance testing, you can use benchmarks:
 
 ```bash
 # Run benchmark tests
-go test -bench=. ./pkg/models/tests/...
+go test -tags=unit -bench=. ./pkg/models/tests/...
 
 # Run benchmarks with memory profiling
-go test -bench=. -benchmem ./pkg/models/tests/...
+go test -tags=unit -bench=. -benchmem ./pkg/models/tests/...
 ```
 
 ## Integration with CI/CD
@@ -244,10 +244,10 @@ These tests are designed to be run in CI/CD pipelines:
 
 ```bash
 # CI-friendly test run
-go test -v -race -cover ./pkg/models/tests/...
+go test -tags=unit -v -race -cover ./pkg/models/tests/...
 
 # Generate coverage for CI
-go test -v -race -coverprofile=coverage.out -covermode=atomic ./pkg/models/tests/...
+go test -tags=unit -v -race -coverprofile=coverage.out -covermode=atomic ./pkg/models/tests/...
 ```
 
 ## Test Data Validation
@@ -265,10 +265,10 @@ If tests fail, you can debug them using:
 
 ```bash
 # Run tests with detailed output
-go test -v -failfast ./pkg/models/tests/...
+go test -tags=unit -v -failfast ./pkg/models/tests/...
 
 # Run a specific failing test
-go test -v -run TestSpecificFailingTest ./pkg/models/tests/...
+go test  -tags=unit -v -run TestSpecificFailingTest ./pkg/models/tests/...
 ```
 
 ## Contributing

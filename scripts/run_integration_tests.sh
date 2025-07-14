@@ -223,23 +223,28 @@ run_tests_in_container() {
             # Install dependencies
             go mod download
             
-            # Run integration tests with proper timeouts
-            go test -tags=integration -v ./internal/kafka/tests/... -timeout=5m
-            
-            # Run storage integration tests (using testcontainers)
-            if [ -d './internal/storage/tests' ]; then
-                go test -tags=integration -v ./internal/storage/tests/... -timeout=5m
-            fi
+            # Set environment variables to indicate container mode
+            export CONTAINER_MODE=true
+            export USE_EXISTING_SERVICES=true
             
             # Run notifications integration tests (using mock HTTP server)
             if [ -d './internal/notifications/tests' ]; then
+                echo 'Running Notifications integration tests...'
                 go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m
             fi
             
             # Run API integration tests (using HTTP server)
             if [ -d './internal/api/tests' ]; then
+                echo 'Running API integration tests...'
                 go test -tags=integration -v ./internal/api/tests/... -timeout=5m
             fi
+            
+            # Note: Kafka and Storage tests are skipped in container mode
+            # because they require testcontainers which need Docker-in-Docker
+            echo ''
+            echo '📝 Note: Kafka and Storage integration tests are skipped in container mode'
+            echo '   They require testcontainers which need Docker-in-Docker capability'
+            echo '   Use \"./scripts/run_integration_tests.sh\" (without container) to run all tests'
         "
 }
 
@@ -251,6 +256,11 @@ run_performance_tests() {
     export REDIS_ADDR="localhost:6380"
     export REDIS_PASSWORD="testpass"
     
+    # Set up environment variables for Podman/Docker testcontainers
+    export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+    export DOCKER_HOST=unix:///var/run/docker.sock
+    export TESTCONTAINERS_RYUK_DISABLED=true
+    
     # Run Kafka performance tests
     if go test -tags=integration -bench=. -benchmem ./internal/kafka/tests/... -timeout=10m; then
         print_status $GREEN "✅ Kafka performance tests completed"
@@ -259,7 +269,7 @@ run_performance_tests() {
     fi
     
     # Run Storage performance tests
-    if go test -tags=integration -bench=. -benchmem ./internal/storage/tests/... -timeout=10m; then
+    if go test -tags=integration -v ./internal/storage/tests/... -run TestRedisStore_Integration_Performance -timeout=10m; then
         print_status $GREEN "✅ Storage performance tests completed"
     else
         print_status $YELLOW "⚠️  Storage performance tests not found or skipped"
@@ -343,14 +353,14 @@ show_usage() {
     echo ""
     echo "Modes:"
     echo "  (none)        Run integration tests on host"
-    echo "  container     Run tests inside container"
+    echo "  container     Run tests inside container (Notifications & API only)"
     echo "  performance   Run integration and performance tests"
     echo "  logs          Show container logs"
     echo "  --help        Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0                    # Run integration tests"
-    echo "  $0 container          # Run tests in container"
+    echo "  $0 container          # Run tests in container (limited scope)"
     echo "  $0 performance        # Run performance tests"
     echo "  $0 logs               # Show service logs"
     echo ""

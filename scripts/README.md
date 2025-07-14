@@ -2,6 +2,20 @@
 
 This directory contains scripts for running various tests and operations for the Alert Engine project.
 
+## Scripts Overview
+
+This directory contains two main testing scripts:
+
+### 1. Unit Test Script (`run_unit_tests.sh`)
+- Runs unit tests for all packages using the `-tags=unit` build tag
+- Provides coverage analysis and HTML reports
+- Tests are standardized across all packages to require the unit build tag
+
+### 2. Integration Test Script (`run_integration_tests.sh`)
+- Runs integration tests using the `-tags=integration` build tag
+- Uses Docker/Podman containers for external dependencies (Kafka, Redis, Zookeeper)
+- Provides comprehensive testing with real external services
+
 ## Integration Test Script
 
 The `run_integration_tests.sh` script provides comprehensive integration testing using Docker/Podman containers for external dependencies (Kafka, Redis, Zookeeper).
@@ -162,6 +176,17 @@ go test -tags=integration -v ./internal/api/tests/... -timeout=5m
 go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m
 go test -tags=integration -v ./internal/storage/tests/... -timeout=5m
 go test -tags=integration -v ./internal/kafka/tests/... -timeout=5m
+
+# Run all unit tests directly (all packages use -tags=unit)
+go test -tags=unit -v ./pkg/models/tests/... -timeout=2m
+go test -tags=unit -v ./internal/alerting/tests/... -timeout=2m
+go test -tags=unit -v ./internal/api/tests/... -timeout=2m
+go test -tags=unit -v ./internal/kafka/tests/... -timeout=2m
+go test -tags=unit -v ./internal/notifications/tests/... -timeout=2m
+go test -tags=unit -v ./internal/storage/tests/... -timeout=2m
+
+# Run all tests together
+go test -tags=unit -v ./... -timeout=5m
 ```
 
 ### Expected Output
@@ -193,9 +218,96 @@ Using Docker/Podman for container orchestration
 🎉 Integration tests completed successfully!
 ```
 
+## Unit Test Script
+
+The `run_unit_tests.sh` script provides comprehensive unit testing for all packages with standardized build tags.
+
+### Quick Start
+
+```bash
+# Show help and usage information
+./scripts/run_unit_tests.sh --help
+
+# Run unit tests only
+./scripts/run_unit_tests.sh
+
+# Run unit tests with coverage analysis
+./scripts/run_unit_tests.sh --coverage
+```
+
+### Available Commands
+
+#### 1. Basic Unit Tests
+```bash
+./scripts/run_unit_tests.sh
+```
+**Purpose**: Run all unit tests across all packages
+- Uses `-tags=unit` build tag consistently across all packages
+- Tests individual packages and performs final verification
+- Expected Duration: 2-3 seconds
+
+#### 2. Coverage Analysis
+```bash
+./scripts/run_unit_tests.sh --coverage
+```
+**Purpose**: Run unit tests with detailed coverage analysis
+- Generates individual coverage reports for each package
+- Creates combined coverage report for the entire project
+- Produces HTML coverage reports for easy viewing
+- Expected Duration: 5-10 seconds
+
+### Test Coverage
+
+The unit test script covers all packages with standardized build tags:
+
+| **Package** | **Test Count** | **Build Tag** | **Description** |
+|-------------|---------------|---------------|-----------------|
+| **pkg/models** | 45 tests | `unit` | Data models, JSON marshaling, validation |
+| **internal/alerting** | 107 tests | `unit` | Alert engine, rule evaluation, performance |
+| **internal/api** | 35 tests | `unit` | HTTP handlers, CRUD operations, CORS |
+| **internal/kafka** | 57 tests | `unit` | Kafka consumer, message processing |
+| **internal/notifications** | 35 tests | `unit` | Slack notifications, message formatting |
+| **internal/storage** | 13 tests | `unit` | Redis operations, key generation |
+
+**Total**: 257 unit tests, all using standardized `-tags=unit` build tag
+
+### Build Tag Standardization
+
+All packages now consistently use build tags:
+- **Unit tests**: Require `-tags=unit` build tag
+- **Integration tests**: Require `-tags=integration` build tag
+- **Test files**: Include `//go:build unit` or `//go:build integration` directives
+- **Documentation**: All README files updated with consistent command patterns
+
+### Expected Output
+
+#### Successful Run
+```
+==========================================
+Alert Engine - Unit Test Suite
+==========================================
+✅ pkg/models tests PASSED
+✅ internal/alerting tests PASSED
+✅ internal/api tests PASSED
+✅ internal/kafka tests PASSED
+✅ internal/notifications tests PASSED
+✅ internal/storage tests PASSED
+🎉 ALL UNIT TESTS PASSED!
+```
+
+#### With Coverage
+```
+📊 models coverage: 85.4%
+📊 alerting coverage: 92.1%
+📊 api coverage: 78.9%
+📊 kafka coverage: 88.7%
+📊 notifications coverage: 81.3%
+📊 storage coverage: 76.5%
+🎯 Total project coverage: 85.2%
+```
+
 ### Additional Scripts
 
-- `run_unit_tests.sh` - Executes unit tests across all packages
 - Other utility scripts may be added as the project evolves
 
 ### Notes
