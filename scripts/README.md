@@ -295,16 +295,6 @@ Alert Engine - Unit Test Suite
 🎉 ALL UNIT TESTS PASSED!
 ```
 
-#### With Coverage
-```
-📊 models coverage: 85.4%
-📊 alerting coverage: 92.1%
-📊 api coverage: 78.9%
-📊 kafka coverage: 88.7%
-📊 notifications coverage: 81.3%
-📊 storage coverage: 76.5%
-🎯 Total project coverage: 85.2%
-```
 
 ### Additional Scripts
 
