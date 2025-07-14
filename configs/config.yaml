@@ -1,47 +1,48 @@
-# Alert Engine Configuration
-# Phase 0: Foundation & Proof of Concept
+# Alert Engine Configuration - Local + OpenShift Setup
+# Updated for connecting to OpenShift infrastructure
 
 # Server configuration
 server:
   address: ":8080"
   read_timeout: "30s"
-  write_timeout: "30s"
+  write_timeout: "30s" 
   idle_timeout: "60s"
 
-# Redis configuration for state storage
+# Redis configuration (via port-forward to OpenShift)
 redis:
+  # Using port-forward to OpenShift Redis cluster
   address: "localhost:6379"
   password: ""
   database: 0
   max_retries: 3
   pool_size: 10
   min_idle_conns: 5
-  dial_timeout: "5s"
-  read_timeout: "3s"
-  write_timeout: "3s"
-  pool_timeout: "4s"
+  dial_timeout: "10s"  # Increased for network latency
+  read_timeout: "5s"   # Increased for network latency
+  write_timeout: "5s"  # Increased for network latency
+  pool_timeout: "10s"  # Increased for network latency
   idle_timeout: "5m"
 
-# Kafka configuration for log consumption
+# Kafka configuration (via port-forward to OpenShift)
 kafka:
   brokers:
-    - "localhost:9092"
+    - "localhost:9092"  # Port-forwarded to OpenShift Kafka
   topic: "application-logs"
-  group_id: "log-monitoring-group"
+  group_id: "alert-engine-local-group"  # Unique group for local testing
   consumer:
-    min_bytes: 10240        # 10KB
-    max_bytes: 10485760     # 10MB
-    max_wait: "1s"
+    min_bytes: 1024         # Smaller for testing
+    max_bytes: 1048576      # 1MB
+    max_wait: "2s"          # Increased for network latency
     start_offset: -1        # Latest offset
   producer:
-    batch_size: 100
-    batch_timeout: "1s"
+    batch_size: 50          # Smaller for testing
+    batch_timeout: "2s"     # Increased for network latency
 
 # Slack notification configuration
 slack:
   webhook_url: ""           # Set via environment variable SLACK_WEBHOOK_URL
   channel: "#alerts"
-  username: "Alert Engine"
+  username: "Alert Engine (Local)"
   icon_emoji: ":warning:"
   timeout: "30s"
 
@@ -52,27 +53,27 @@ notifications:
   retry_delay: "5s"
   timeout: "30s"
   rate_limit_per_min: 60
-  batch_size: 10
-  batch_delay: "1s"
+  batch_size: 5             # Smaller for testing
+  batch_delay: "2s"
   enable_deduplication: true
   deduplication_window: "5m"
 
 # Alert processing configuration
 alerting:
   enabled: true
-  batch_size: 100
-  flush_interval: "5s"
+  batch_size: 50            # Smaller for testing
+  flush_interval: "10s"     # More frequent for testing
   max_rules: 1000
   default_time_window: "5m"
-  default_threshold: 5
+  default_threshold: 3      # Lower threshold for testing
   cleanup_interval: "1h"
 
 # Log processing configuration
 log_processing:
   enabled: true
-  batch_size: 100
-  flush_interval: "5s"
-  max_message_size: 1048576  # 1MB
+  batch_size: 50            # Smaller for testing
+  flush_interval: "10s"     # More frequent for testing
+  max_message_size: 1048576 # 1MB
   validation:
     require_timestamp: true
     require_level: true
@@ -84,94 +85,100 @@ monitoring:
   enabled: true
   metrics_port: 8081
   health_check_interval: "30s"
-  log_level: "info"         # debug, info, warn, error
-  enable_pprof: false       # Enable profiling endpoints
+  log_level: "debug"        # Debug for local development
+  enable_pprof: true        # Enable profiling for local dev
 
-# Default alert rules (loaded on startup if no rules exist)
+# Test alert rules for local development
 default_rules:
   enabled: true
   rules:
-    - id: "default-error-alert"
-      name: "Application Error Alert"
-      description: "Alert on application errors"
+    - id: "local-test-error-alert"
+      name: "Local Test - Application Error Alert"
+      description: "Alert on application errors (local testing)"
       enabled: true
       conditions:
         log_level: "ERROR"
-        threshold: 5
-        time_window: "5m"
+        threshold: 2          # Lower threshold for testing
+        time_window: "2m"     # Shorter window for testing
         operator: "gt"
       actions:
         channel: "#alerts"
         severity: "high"
 
-    - id: "default-database-alert"  
-      name: "Database Connection Issues"
-      description: "Alert on database connection problems"
+    - id: "local-test-alert-engine-logs"
+      name: "Local Test - Alert Engine Namespace Logs" 
+      description: "Alert on alert-engine namespace activity"
       enabled: true
       conditions:
+        namespace: "alert-engine"
         log_level: "ERROR"
-        keywords: ["database", "connection", "failed"]
-        threshold: 3
-        time_window: "2m"
+        threshold: 1          # Very low threshold for testing
+        time_window: "1m"     # Short window for testing
         operator: "gt"
       actions:
-        channel: "#infrastructure"
-        severity: "critical"
+        channel: "#alerts"
+        severity: "medium"
 
-    - id: "default-memory-warning"
-      name: "High Memory Usage Warning"
-      description: "Alert on high memory usage warnings"
+    - id: "local-test-continuous-log-alerts"
+      name: "Local Test - Continuous Log Generator Alerts"
+      description: "Alert on continuous log generator errors"
       enabled: true
       conditions:
-        log_level: "WARN"
-        keywords: ["memory", "usage", "high"]
-        threshold: 10
-        time_window: "10m"
+        service: "continuous-log-generator"
+        log_level: "ERROR"
+        threshold: 3          # Moderate threshold
+        time_window: "3m"
         operator: "gt"
       actions:
-        channel: "#monitoring"
+        channel: "#alerts"
         severity: "medium"
 
 # Security configuration
 security:
   enable_cors: true
   cors_origins: ["*"]
-  enable_auth: false        # Disable for Phase 0
-  api_key: ""              # Set via environment variable API_KEY
+  enable_auth: false        # Disable for local development
+  api_key: ""
 
-# Performance tuning
+# Performance tuning (relaxed for local development)
 performance:
-  max_concurrent_rules: 100
-  rule_evaluation_timeout: "1s"
-  max_memory_usage: "512Mi"
+  max_concurrent_rules: 50
+  rule_evaluation_timeout: "2s"
+  max_memory_usage: "256Mi"
   gc_percentage: 100
 
 # Logging configuration
 logging:
-  level: "info"
-  format: "json"           # json or text
-  output: "stdout"         # stdout, stderr, or file path
+  level: "debug"            # Debug for local development
+  format: "text"            # Text format for easier reading locally
+  output: "stdout"
   file:
-    path: "/var/log/alert-engine.log"
-    max_size: "100MB"
-    max_backups: 5
-    max_age: "30d"
+    path: "/tmp/alert-engine-local.log"
+    max_size: "10MB"
+    max_backups: 3
+    max_age: "7d"
     compress: true
 
 # Environment-specific overrides
-# These can be overridden by environment variables
 env_overrides:
   development:
     logging:
       level: "debug"
     monitoring:
       enable_pprof: true
+    alerting:
+      default_threshold: 1  # Very sensitive for testing
   
   production:
     logging:
       level: "warn"
     performance:
       max_memory_usage: "1Gi"
+    kafka:
+      brokers:
+        - "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
+    redis:
+      address: "redis-cluster-access.redis-cluster.svc.cluster.local:6379"
     
   test:
     logging:
