@@ -357,8 +357,6 @@ go test -tags=unit -bench=. ./internal/alerting/tests/...
 # Run benchmarks with memory profiling
 go test -tags=unit -bench=. -benchmem ./internal/alerting/tests/...
 
-# Profile specific functions
-go test -tags=unit -bench=BenchmarkEvaluateLog -cpuprofile=cpu.prof ./internal/alerting/tests/...
 ```
 
 ## Integration with CI/CD
@@ -387,31 +385,3 @@ go test -tags=unit -v -run TestSpecificFailingTest ./internal/alerting/tests/...
 # Enable detailed logging
 GOLOG_v=2 go test -tags=unit -v ./internal/alerting/tests/...
 ```
-
-## Best Practices
-
-1. **Use Mocks**: Always use mocks for external dependencies
-2. **Test Isolation**: Each test should be independent
-3. **Error Testing**: Test both success and failure cases
-4. **Edge Cases**: Test boundary conditions and edge cases
-5. **Clear Names**: Use descriptive test names
-6. **Setup/Teardown**: Clean up after tests
-7. **Parallel Tests**: Use `t.Parallel()` where appropriate
-8. **Table-Driven Tests**: Use table-driven tests for multiple scenarios
-
-## Contributing
-
-When adding new functionality:
-
-1. **Add Tests**: Write tests for new features
-2. **Update Mocks**: Extend mocks if needed
-3. **Update Fixtures**: Add new test data as needed
-4. **Document**: Update this README for new test categories
-5. **Coverage**: Maintain high test coverage
-
-## Related Documentation
-
-- [Alerting Package](../README.md) - Overview of the alerting system
-- [Models Testing](../../pkg/models/tests/README.md) - Model unit tests
-- [Integration Testing](../../../tests/integration/README.md) - End-to-end testing
-- [Testing Structure](../../../TESTING_STRUCTURE.md) - Overall testing strategy 

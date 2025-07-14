@@ -170,13 +170,13 @@ go test -tags=integration -short -v ./internal/kafka/tests/...
 ### All Tests
 ```bash
 # Run all tests (unit + integration)
-go test -v ./internal/kafka/tests/...
+go test -tags="unit integration" -v ./internal/kafka/tests/...
 
 # Run with verbose output
-go test -v ./internal/kafka/tests/...
+go test -tags="unit integration" -v ./internal/kafka/tests/...
 
 # Run with coverage
-go test -cover ./internal/kafka/tests/...
+go test -tags="unit integration" -cover ./internal/kafka/tests/...
 ```
 
 ### Specific Test Categories
@@ -544,14 +544,14 @@ customConfig := kafka.ProcessorConfig{
 
 ### Throughput Testing
 ```bash
-# Run performance tests
-go test -bench=. ./internal/kafka/tests/...
+# Run performance tests (integration tests with benchmarks)
+go test -tags=integration -bench=. ./internal/kafka/tests/...
 
 # Run with memory profiling
-go test -bench=. -memprofile=mem.prof ./internal/kafka/tests/...
+go test -tags=integration -bench=. -memprofile=mem.prof ./internal/kafka/tests/...
 
 # Run with CPU profiling
-go test -bench=. -cpuprofile=cpu.prof ./internal/kafka/tests/...
+go test -tags=integration -bench=. -cpuprofile=cpu.prof ./internal/kafka/tests/...
 ```
 
 ### Load Testing
@@ -598,7 +598,7 @@ jobs:
       
       - name: Run Kafka Tests
         run: |
-          go test -v -race -cover ./internal/kafka/tests/...
+          go test -tags="unit integration" -v -race -cover ./internal/kafka/tests/...
           
       - name: Run Integration Tests
         run: |
@@ -608,13 +608,13 @@ jobs:
 ### Test Coverage
 ```bash
 # Generate coverage report
-go test -coverprofile=coverage.out ./internal/kafka/tests/...
+go test -tags="unit integration" -coverprofile=coverage.out ./internal/kafka/tests/...
 
 # View coverage report
 go tool cover -html=coverage.out
 
 # Coverage threshold check
-go test -cover ./internal/kafka/tests/... | grep -E "coverage: [0-9]+\.[0-9]+%" | awk '{print $2}' | grep -E "^[89][0-9]\.[0-9]+%|^100\.0%"
+go test -tags="unit integration" -cover ./internal/kafka/tests/... | grep -E "coverage: [0-9]+\.[0-9]+%" | awk '{print $2}' | grep -E "^[89][0-9]\.[0-9]+%|^100\.0%"
 ```
 
 ## Debugging and Troubleshooting

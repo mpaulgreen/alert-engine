@@ -110,7 +110,7 @@ else
     exit 1
 fi
 
-if go build -o alert-engine ../cmd/server/; then
+if go build -o alert-engine ./cmd/server/; then
     print_status "Alert Engine built successfully"
 else
     print_error "Failed to build Alert Engine"
@@ -127,7 +127,7 @@ if [[ ! -f .env ]]; then
 # Update SLACK_WEBHOOK_URL with your actual webhook URL
 
 # Slack Integration (REQUIRED)
-export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+export SLACK_WEBHOOK_URL=""
 
 # Configuration
 export CONFIG_PATH="./configs/config.yaml"
@@ -135,9 +135,9 @@ export ENVIRONMENT="development"
 export LOG_LEVEL="debug"
 
 # Optional overrides
-# export REDIS_ADDRESS="localhost:6379"
-# export KAFKA_BROKERS="localhost:9092"
-# export SERVER_ADDRESS=":8080"
+export REDIS_ADDRESS="localhost:6379"
+export KAFKA_BROKERS="localhost:9092"
+export SERVER_ADDRESS=":8080"
 EOF
     print_status "Created .env file template"
     print_warning "Please edit .env file and update SLACK_WEBHOOK_URL with your actual webhook URL"
@@ -179,12 +179,12 @@ if [[ -f .env ]]; then
     source .env
     echo "✅ Loaded environment variables from .env"
 else
-    echo "❌ .env file not found. Please run ./scripts/local-setup.sh first"
+    echo "❌ .env file not found. Please run ./local/local-setup.sh first"
     exit 1
 fi
 
 # Check if Slack webhook is configured
-if [[ "$SLACK_WEBHOOK_URL" == "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" ]]; then
+if [[ "$SLACK_WEBHOOK_URL" == "" ]]; then
     echo "⚠️  WARNING: SLACK_WEBHOOK_URL is not configured in .env file"
     echo "   Slack notifications will not work until you update it"
 fi

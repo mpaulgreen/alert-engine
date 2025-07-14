@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -12,20 +13,41 @@ import (
 
 // RedisStore implements the StateStore interface using Redis
 type RedisStore struct {
-	client *redis.Client
+	client redis.UniversalClient
 	ctx    context.Context
 }
 
-// NewRedisStore creates a new Redis store
+// NewRedisStore creates a new Redis store with cluster support
 func NewRedisStore(addr, password string) *RedisStore {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password,
-		DB:       0,
-	})
+	return NewRedisStoreWithConfig(addr, password, false)
+}
+
+// NewRedisStoreWithConfig creates a new Redis store with configuration options
+func NewRedisStoreWithConfig(addr, password string, clusterMode bool) *RedisStore {
+	var client redis.UniversalClient
+
+	if clusterMode || strings.Contains(addr, ",") {
+		// Parse multiple addresses for cluster mode
+		addresses := strings.Split(addr, ",")
+		for i, address := range addresses {
+			addresses[i] = strings.TrimSpace(address)
+		}
+
+		client = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs:    addresses,
+			Password: password,
+		})
+	} else {
+		// Single node mode
+		client = redis.NewClient(&redis.Options{
+			Addr:     addr,
+			Password: password,
+			DB:       0,
+		})
+	}
 
 	return &RedisStore{
-		client: rdb,
+		client: client,
 		ctx:    context.Background(),
 	}
 }
