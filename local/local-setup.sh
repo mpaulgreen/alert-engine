@@ -127,7 +127,7 @@ if [[ ! -f .env ]]; then
 # Update SLACK_WEBHOOK_URL with your actual webhook URL
 
 # Slack Integration (REQUIRED)
-export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/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"
+export SLACK_WEBHOOK_URL=""
 
 # Configuration
 export CONFIG_PATH="./configs/config.yaml"
@@ -184,7 +184,7 @@ else
 fi
 
 # Check if Slack webhook is configured
-if [[ "$SLACK_WEBHOOK_URL" == "https://hooks.slack.com/services/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" ]]; then
+if [[ "$SLACK_WEBHOOK_URL" == "" ]]; then
     echo "⚠️  WARNING: SLACK_WEBHOOK_URL is not configured in .env file"
     echo "   Slack notifications will not work until you update it"
 fi
