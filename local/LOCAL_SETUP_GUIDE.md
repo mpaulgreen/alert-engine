@@ -154,6 +154,7 @@ redis:
   address: "localhost:6379"
   password: ""
   database: 0
+  cluster_mode: false  # Disable cluster mode for local port-forwarding
   max_retries: 3
   pool_size: 10
   min_idle_conns: 5
@@ -181,7 +182,7 @@ kafka:
 # Slack notification configuration
 slack:
   webhook_url: ""           # Set via environment variable SLACK_WEBHOOK_URL
-  channel: "#alerts"
+  channel: "#test-mp-channel"
   username: "Alert Engine (Local)"
   icon_emoji: ":warning:"
   timeout: "30s"
@@ -259,6 +260,20 @@ default_rules:
         channel: "#alerts"
         severity: "medium"
 
+    - id: "local-test-continuous-log-alerts"
+      name: "Local Test - Continuous Log Generator Alerts"
+      description: "Alert on continuous log generator errors"
+      enabled: true
+      conditions:
+        service: "continuous-log-generator"
+        log_level: "ERROR"
+        threshold: 3          # Moderate threshold
+        time_window: "3m"
+        operator: "gt"
+      actions:
+        channel: "#alerts"
+        severity: "medium"
+
 # Security configuration
 security:
   enable_cors: true
@@ -294,6 +309,25 @@ env_overrides:
       enable_pprof: true
     alerting:
       default_threshold: 1  # Very sensitive for testing
+  
+  production:
+    logging:
+      level: "warn"
+    performance:
+      max_memory_usage: "1Gi"
+    kafka:
+      brokers:
+        - "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
+    redis:
+      address: "redis-cluster-access.redis-cluster.svc.cluster.local:6379"
+    
+  test:
+    logging:
+      level: "error"
+    kafka:
+      topic: "test-application-logs"
+    redis:
+      database: 1 
 ```
 
 ### Step 2: Set Environment Variables
