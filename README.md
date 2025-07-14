@@ -92,7 +92,7 @@ alert-engine/
 
 **IMPORTANT**: Before proceeding with the Alert Engine setup, you must first install and configure the required infrastructure components on your OpenShift cluster.
 
-👉 **[OpenShift Infrastructure Setup Guide](OPENSHIFT_SETUP.md)**
+👉 **[OpenShift Infrastructure Setup Guide](alert_engine_infra_setup.md)**
 
 Key infrastructure components to install (15-20 minutes total):
 - **Red Hat AMQ Streams**: Install operator and deploy 3-node Kafka cluster with `application-logs` topic
