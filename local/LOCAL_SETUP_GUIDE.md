@@ -2,6 +2,13 @@
 
 This guide will help you run the Alert Engine locally on your Mac while connecting to the Kafka, Redis, and ClusterLogForwarder infrastructure deployed on OpenShift.
 
+## ⚠️ Expected Limitations in Local Setup
+
+⚠️ **Kafka Consumer**: May show "Not Leader For Partition" or "EOF" errors due to port-forwarding limitations  
+⚠️ **Message Processing**: Full message processing works in OpenShift deployment, not local port-forwarding  
+⚠️ **Alert Generation**: Limited by Kafka consumer issues in local setup  
+⚠️ **Slack Notifications**: Dependent on successful message processing
+
 ## 📋 Prerequisites
 
 ### Required Software
@@ -748,19 +755,39 @@ curl -X POST http://localhost:8080/api/v1/rules/test \
 
 #### Troubleshooting Redis Connectivity
 
-**Issue**: Getting `MOVED` redirects
-**Solution**: Use the process above to connect to the correct Redis node
+**Issue**: Getting `MOVED` redirects (e.g., `MOVED 14983 10.131.0.38:6379`)
+**Solution**: Connect to the correct Redis node for your rule ID:
+
+```bash
+# 1. Find which Redis node handles the slot
+oc exec -n redis-cluster redis-cluster-0 -- redis-cli -c CLUSTER NODES
+
+# 2. Identify the slot range for your rule ID
+# For example, slot 14983 is in range 10923-16383 handled by redis-cluster-2
+
+# 3. Stop current port-forward and connect to correct node
+pkill -f "oc port-forward.*redis"
+oc port-forward -n redis-cluster redis-cluster-2 6379:6379 &
+
+# 4. Test connectivity
+echo "PING" | nc localhost 6379
+```
 
 **Issue**: Port-forward timeouts
 **Solution**: 
 ```bash
-# Restart port-forward
+# Restart port-forward to the correct Redis node
 pkill -f "oc port-forward.*redis"
-oc port-forward -n redis-cluster redis-cluster-1 6379:6379 &
+oc port-forward -n redis-cluster redis-cluster-X 6379:6379 &  # Replace X with correct node
 ```
 
 **Issue**: Different rule IDs failing
 **Solution**: Each rule ID hashes to a different slot - use the key slot calculator above
+
+**Common Redis Node Slot Ranges:**
+- `redis-cluster-0`: slots 0-5460
+- `redis-cluster-1`: slots 5461-10922  
+- `redis-cluster-2`: slots 10923-16383
 
 #### Expected Limitations
 
@@ -796,6 +823,10 @@ curl -X POST http://localhost:8080/api/v1/rules \
       "severity": "medium"
     }
   }'
+
+# NOTE: If you get a "MOVED" error, you need to connect to the correct Redis node
+# The "slack-test-rule" hashes to slot 14983, handled by redis-cluster-2
+# Run: pkill -f "oc port-forward.*redis" && oc port-forward -n redis-cluster redis-cluster-2 6379:6379 &
 
 # Step 2: Trigger the alert by sending a matching log message
 echo '{"timestamp":"2025-07-14T12:00:00Z","level":"ERROR","message":"Slack test message for notification","kubernetes":{"namespace":"alert-engine","pod":"test-pod-123","container":"test-container","labels":{"app":"slack-test"}},"host":"test-host"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
@@ -1001,12 +1032,6 @@ Your local setup is working correctly if:
 ✅ **API Access**: All API endpoints respond correctly  
 ✅ **Metrics**: System metrics are available at `:8080/api/v1/system/metrics`
 ✅ **File Logging**: Logs are saved to `/tmp/alert-engine-local.log` (if configured)
-
-**Expected Limitations in Local Setup:**
-⚠️ **Kafka Consumer**: May show "Not Leader For Partition" or "EOF" errors due to port-forwarding limitations  
-⚠️ **Message Processing**: Full message processing works in OpenShift deployment, not local port-forwarding  
-⚠️ **Alert Generation**: Limited by Kafka consumer issues in local setup  
-⚠️ **Slack Notifications**: Dependent on successful message processing
 
 ## 🎯 Next Steps
 
