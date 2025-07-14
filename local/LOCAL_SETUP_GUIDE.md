@@ -705,6 +705,7 @@ curl -X POST http://localhost:8080/api/v1/rules/test \
   -d '{
     "rule": {
       "id": "test-rule-2",
+      "name": "Test Rule for Redis Connectivity",
       "conditions": {
         "log_level": "ERROR",
         "namespace": "test-namespace",
@@ -730,7 +731,7 @@ curl -X POST http://localhost:8080/api/v1/rules/test \
   }'
 
 # Expected success response:
-# {"success":true,"data":{"matched_logs":1,"would_trigger":true,"match_rate":1}}
+# {"success":true,"data":{"matched_logs":1,"would_trigger":true,"match_rate":1,"summary":{"total_logs":1,"matched_logs":1,"match_rate":1,"would_trigger":true}}}
 ```
 
 #### Understanding the Results
@@ -884,17 +885,27 @@ curl -X POST http://localhost:8080/api/v1/rules/test \
   -H "Content-Type: application/json" \
   -d '{
     "rule": {
-      "name": "Test Rule",
+      "id": "test-rule-api",
+      "name": "Test Rule for API Endpoint",
       "conditions": {
         "log_level": "ERROR",
-        "keywords": ["test"]
+        "keywords": ["test"],
+        "threshold": 1,
+        "time_window": 60000000000,
+        "operator": "gt"
       }
     },
     "sample_logs": [
       {
         "level": "ERROR",
         "message": "Test error message",
-        "timestamp": "2025-07-14T12:00:00Z"
+        "timestamp": "2025-07-14T12:00:00Z",
+        "kubernetes": {
+          "namespace": "default",
+          "pod": "test-pod",
+          "container": "test-container"
+        },
+        "host": "test-host"
       }
     ]
   }'
