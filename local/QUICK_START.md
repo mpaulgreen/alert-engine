@@ -46,6 +46,9 @@ oc port-forward -n redis-cluster svc/redis-cluster-access 6379:6379
 
 # Terminal 3: Start Alert Engine
 source .env && ./alert-engine
+
+# Expected output: You'll see GIN debug messages showing all API endpoints,
+# followed by "Starting Kafka consumer..." and "Starting HTTP server on :8080"
 ```
 
 ## 🧪 Validate Setup
@@ -55,7 +58,7 @@ source .env && ./alert-engine
 ./test-local-setup.sh
 
 # Quick health check
-curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/health
 
 # Check if alerts are working
 curl -X POST http://localhost:8080/api/v1/test-alert \
@@ -67,17 +70,17 @@ curl -X POST http://localhost:8080/api/v1/test-alert \
 
 | Component | Local Port | Purpose |
 |-----------|------------|---------|
-| Alert Engine API | `:8080` | Main API and health checks |
-| Metrics Server | `:8081` | Prometheus metrics |
+| Alert Engine API | `:8080` | Main API, health checks, and system metrics |
+| Metrics Server | `:8081` | Prometheus metrics (OpenShift only) |
 | Kafka (via port-forward) | `:9092` | Log message consumption |
 | Redis (via port-forward) | `:6379` | State storage |
 
 ## 🔗 Key URLs
 
-- **Health Check**: http://localhost:8080/health
+- **Health Check**: http://localhost:8080/api/v1/health
 - **API Documentation**: http://localhost:8080/api/v1/
-- **Metrics**: http://localhost:8081/metrics
-- **Performance Profiling**: http://localhost:8081/debug/pprof/
+- **System Metrics**: http://localhost:8080/api/v1/system/metrics
+- **Performance Profiling**: http://localhost:8081/debug/pprof/ (OpenShift only)
 
 ## 🎯 Test Your Setup
 

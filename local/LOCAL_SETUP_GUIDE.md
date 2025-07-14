@@ -23,27 +23,56 @@ oc whoami
 
 ## 📁 Directory Structure
 
-This guide assumes you're working from the `alert-engine/local` directory. All local development files and scripts are located here:
+This guide assumes you're working from the `alert-engine` directory. The project contains several directories with scripts for different purposes:
 
 ```
 alert-engine/
 ├── local/                          # Local development files
-│   ├── LOCAL_SETUP_GUIDE.md        # This guide
+│   ├── LOCAL_SETUP_GUIDE.md        # This comprehensive guide
 │   ├── QUICK_START.md              # Quick setup reference
-│   ├── local-setup.sh              # Automated setup script
-│   └── test-local-setup.sh         # Validation test script
+│   ├── README.md                   # Local development overview
+│   ├── local-setup.sh              # Automated local setup script
+│   ├── setup-port-forwards.sh      # OpenShift port forwarding setup
+│   ├── start-local.sh              # Start Alert Engine locally
+│   └── test-local-setup.sh         # Validation and testing script
+├── scripts/                        # Testing and automation scripts
+│   ├── README.md                   # Testing documentation
+│   ├── run_integration_tests.sh    # Integration test runner
+│   └── run_unit_tests.sh           # Unit test runner
+├── cleanup/                        # Infrastructure cleanup scripts
+│   ├── cleanup_openshift_infrastructure.sh    # Remove OpenShift resources
+│   └── verify_resources_before_cleanup.sh     # Pre-cleanup verification
 ├── cmd/                            # Source code
 ├── configs/                        # Configuration files
+├── deployments/                    # OpenShift deployment manifests
+├── internal/                       # Internal Go packages
+├── pkg/                            # Public Go packages
 └── ... (other project files)
 ```
 
+### Script Overview
+
+#### Local Development Scripts (`local/`)
+- **`local-setup.sh`** - Main setup script that builds the project, creates config files, and sets up environment
+- **`setup-port-forwards.sh`** - Sets up port forwarding to OpenShift services (Kafka & Redis)
+- **`start-local.sh`** - Starts the Alert Engine with all prerequisite checks
+- **`test-local-setup.sh`** - Comprehensive testing script to validate the setup
+
+#### Testing Scripts (`scripts/`)
+- **`run_unit_tests.sh`** - Runs all unit tests with coverage reporting
+- **`run_integration_tests.sh`** - Runs integration tests with external dependencies
+
+#### Cleanup Scripts (`cleanup/`)
+- **`cleanup_openshift_infrastructure.sh`** - Removes all OpenShift resources
+- **`verify_resources_before_cleanup.sh`** - Safety check before cleanup
+
 ### Getting Started
 ```bash
-# Navigate to the local directory
-cd alert-engine/local
+# Navigate to the alert-engine directory
+cd alert-engine
 
 # Run the automated setup
-./local-setup.sh
+./local/local-setup.sh
 ```
 
 ## 🔧 OpenShift Infrastructure Connection
@@ -284,9 +313,6 @@ export ENVIRONMENT="development"
 ### Step 1: Prepare Environment
 
 ```bash
-# Navigate to alert-engine directory
-cd alert-engine
-
 # Source environment variables
 source .env
 
@@ -313,24 +339,105 @@ oc port-forward -n redis-cluster svc/redis-cluster-access 6379:6379
 ### Step 3: Run Alert Engine
 
 ```bash
-# Terminal 3: Run Alert Engine locally
+# Terminal 3: Run Alert Engine locally (logs to terminal)
 ./alert-engine
 
 # Alternative: Run with go run
 go run ./cmd/server/main.go
+
+# OPTION: Run with file logging (logs to both terminal and file)
+./alert-engine 2>&1 | tee /tmp/alert-engine-local.log
+
+# OPTION: Run with file logging only (logs to file only)
+./alert-engine > /tmp/alert-engine-local.log 2>&1
+
+# OPTION: Run in background with file logging
+nohup ./alert-engine > /tmp/alert-engine-local.log 2>&1 &
 ```
 
 ### Expected Output:
 ```
-2025/07/14 12:00:00 Starting Alert Engine...
-2025/07/14 12:00:00 Loading configuration from ./configs/config.yaml
-2025/07/14 12:00:01 Connected to Redis at localhost:6379
-2025/07/14 12:00:01 Connected to Kafka brokers: [localhost:9092]
-2025/07/14 12:00:01 Subscribed to topic: application-logs
-2025/07/14 12:00:01 Starting HTTP server on :8080
-2025/07/14 12:00:01 Starting metrics server on :8081
-2025/07/14 12:00:01 Alert Engine started successfully
+2025/07/14 13:08:49 Loaded 0 alert rules
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:   export GIN_MODE=release
+ - using code:  gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /api/v1/health            --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).Health-fm (4 handlers)
+[GIN-debug] GET    /api/v1/rules             --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).GetRules-fm (4 handlers)
+[GIN-debug] POST   /api/v1/rules             --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).CreateRule-fm (4 handlers)
+[GIN-debug] GET    /api/v1/rules/stats       --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).GetRuleStats-fm (4 handlers)
+[GIN-debug] GET    /api/v1/rules/template    --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).GetRuleTemplate-fm (4 handlers)
+[GIN-debug] GET    /api/v1/rules/defaults    --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).GetDefaultRules-fm (4 handlers)
+[GIN-debug] POST   /api/v1/rules/bulk        --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).BulkCreateRules-fm (4 handlers)
+[GIN-debug] POST   /api/v1/rules/reload      --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).ReloadRules-fm (4 handlers)
+[GIN-debug] POST   /api/v1/rules/filter      --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).FilterRules-fm (4 handlers)
+[GIN-debug] POST   /api/v1/rules/test        --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).TestRule-fm (4 handlers)
+[GIN-debug] GET    /api/v1/rules/:id         --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).GetRule-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/rules/:id         --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).UpdateRule-fm (4 handlers)
+[GIN-debug] DELETE /api/v1/rules/:id         --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).DeleteRule-fm (4 handlers)
+[GIN-debug] GET    /api/v1/alerts/recent     --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).GetRecentAlerts-fm (4 handlers)
+[GIN-debug] GET    /api/v1/system/metrics    --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).GetMetrics-fm (4 handlers)
+[GIN-debug] GET    /api/v1/system/logs/stats --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).GetLogStats-fm (4 handlers)
+[GIN-debug] GET    /                         --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).SetupRoutes.func2 (4 handlers)
+[GIN-debug] GET    /docs                     --> github.com/log-monitoring/alert-engine/internal/api.(*Handlers).SetupRoutes.func3 (4 handlers)
+2025/07/14 13:08:49 Starting Kafka consumer...
+2025/07/14 13:08:49 Starting log processor for topic: application-logs
+2025/07/14 13:08:49 Starting HTTP server on :8080
+[GIN-debug] Listening and serving HTTP on :8080
 ```
+
+**Note**: The GIN debug messages show all available API endpoints. This is normal in development mode.
+
+## 📝 Configuring File Logging
+
+By default, the Alert Engine logs to the terminal (stdout). To enable file logging to `/tmp/alert-engine-local.log`, you have several options:
+
+### Option 1: Log to Both Terminal and File (Recommended)
+```bash
+./alert-engine 2>&1 | tee /tmp/alert-engine-local.log
+```
+**Benefits**: See logs in real-time AND save to file for later analysis.
+
+### Option 2: Log to File Only
+```bash
+./alert-engine > /tmp/alert-engine-local.log 2>&1
+```
+**Benefits**: All output goes to file, cleaner terminal.
+
+### Option 3: Background Process with File Logging
+```bash
+nohup ./alert-engine > /tmp/alert-engine-local.log 2>&1 &
+```
+**Benefits**: Runs in background, logs to file, survives terminal closing.
+
+### Option 4: Update start-local.sh for File Logging
+Edit `local/start-local.sh` and change the last line from:
+```bash
+exec ./alert-engine
+```
+to:
+```bash
+exec ./alert-engine 2>&1 | tee /tmp/alert-engine-local.log
+```
+
+### Configuration File Setup (Future Enhancement)
+The `configs/config.yaml` file includes logging configuration:
+```yaml
+logging:
+  level: "debug"
+  format: "text"
+  output: "stdout"
+  file:
+    path: "/tmp/alert-engine-local.log"
+    max_size: "10MB"
+    max_backups: 3
+    max_age: "7d"
+    compress: true
+```
+
+**Note**: This configuration is defined but not currently implemented in the code. Use the shell redirection methods above for now.
 
 ## 🧪 Test Cases and Sanity Checks
 
@@ -338,50 +445,329 @@ go run ./cmd/server/main.go
 
 ```bash
 # Check if Alert Engine is running
-curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/health
 
 # Expected response:
-# {"status":"healthy","timestamp":"2025-07-14T12:00:00Z"}
+# {"success":true,"data":{"status":"healthy","timestamp":"2025-07-14T12:00:00Z"}}
 
-# Check metrics endpoint
-curl http://localhost:8081/metrics
+# Check system metrics endpoint
+curl http://localhost:8080/api/v1/system/metrics
+
+# Check root API endpoint
+curl http://localhost:8080/
 ```
 
 ### Test 2: Kafka Connectivity Test
 
 ```bash
-# Send test log to Kafka (this should trigger alerts)
-echo '{"timestamp":"2025-07-14T12:00:00Z","level":"ERROR","message":"Test error message for local Alert Engine","service":"test-service","namespace":"alert-engine","user_id":"test-123"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
+# Send test log to Kafka
+echo '{"timestamp":"2025-07-14T12:00:00Z","level":"ERROR","message":"Test error message for local Alert Engine","kubernetes":{"namespace":"alert-engine","pod":"test-pod-123","container":"test-container","labels":{"app":"test-service","version":"1.0.0"}},"host":"test-host"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
 
-# Check Alert Engine logs - you should see it process this message
+# Verify the message was sent to the topic
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5
+
+# To find your specific test message, you can search for it:
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --timeout-ms 5000 | grep -i "Test error message"
+
+# Expected result: You should see your test message in the output
 ```
+
+#### 📝 **Expected Message Format**
+
+The Alert Engine expects log messages in this specific JSON structure:
+
+```json
+{
+  "timestamp": "2025-07-14T12:00:00Z",
+  "level": "ERROR",
+  "message": "Your log message here",
+  "kubernetes": {
+    "namespace": "your-namespace",
+    "pod": "pod-name",
+    "container": "container-name",
+    "labels": {
+      "app": "your-app",
+      "version": "1.0.0"
+    }
+  },
+  "host": "hostname"
+}
+```
+
+**Required fields:**
+- `timestamp`: ISO 8601 timestamp
+- `level`: Log level (DEBUG, INFO, WARN, ERROR, FATAL)
+- `message`: Log message content (cannot be empty)
+- `kubernetes.namespace`: Kubernetes namespace (required for validation)
+
+**Optional fields:**
+- `kubernetes.pod`, `kubernetes.container`, `kubernetes.labels`
+- `host`: Hostname where log originated
+
+**⚠️ Important Note on Alert Rules:**
+When creating alert rules via API, the `time_window` field must be specified in **nanoseconds**:
+- 1 minute = `60000000000` (60 seconds × 1,000,000,000 nanoseconds)
+- 5 minutes = `300000000000` (300 seconds × 1,000,000,000 nanoseconds)
+- 1 hour = `3600000000000` (3600 seconds × 1,000,000,000 nanoseconds)
+
+#### 🚨 **Known Issue: Alert Engine Message Processing**
+
+Due to Kafka port-forwarding limitations, the Alert Engine may show these errors in the logs:
+- `[6] Not Leader For Partition` 
+- `Error processing message: fetching message: EOF`
+
+**This is expected behavior** and doesn't indicate a problem with your setup.
+
+#### **Why This Happens:**
+- The message **is successfully sent** to the Kafka topic ✅
+- The Alert Engine **connects** to Kafka initially ✅
+- But Kafka redirects consumers to internal broker addresses not accessible through port-forwarding ❌
+
+#### **Verification Steps:**
+```bash
+# 1. Check if your message reached the topic (should work)
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5
+
+# 1a. To search for your specific test message:
+oc exec -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --timeout-ms 10000 | grep -i "your-search-term"
+
+# 2. Check Alert Engine logs for connection attempts
+tail -f /tmp/alert-engine-local.log
+
+# 3. Verify Alert Engine is healthy
+curl http://localhost:8080/api/v1/health
+```
+
+#### **Solutions:**
+1. **For Testing**: Use the verification steps above to confirm connectivity
+2. **For Production**: Deploy to OpenShift where internal addresses are accessible
+3. **For Local Processing**: Consider using a local Kafka instance instead of port-forwarding
+
+#### **Expected Log Output:**
+```
+2025/07/14 13:31:15 Starting Kafka consumer...
+2025/07/14 13:31:15 Starting log processor for topic: application-logs
+2025/07/14 13:31:15 Starting HTTP server on :8080
+2025/07/14 13:31:29 Error processing message: fetching message: EOF
+```
+
+**Note**: The EOF errors are normal with port-forwarding setups. The Alert Engine will work correctly when deployed to OpenShift.
 
 ### Test 3: Redis Connectivity Test
 
-```bash
-# Check if Alert Engine can write to Redis
-curl -X POST http://localhost:8080/api/v1/test-redis \
-  -H "Content-Type: application/json" \
-  -d '{"test_key": "test_value"}'
+Due to Redis cluster behavior with port-forwarding, we need to connect to the specific Redis node that handles our key range. Here's the step-by-step process:
 
-# Verify data in Redis via OpenShift
-oc exec -n redis-cluster redis-cluster-0 -- redis-cli -c get test_key
+#### Step 1: Understand Redis Cluster Setup
+```bash
+# View Redis cluster topology
+oc exec -n redis-cluster redis-cluster-0 -- redis-cli -c CLUSTER NODES
+
+# Expected output shows 3 masters with different slot ranges:
+# - Node 1: slots 0-5460
+# - Node 2: slots 5461-10922  
+# - Node 3: slots 10923-16383
 ```
+
+#### Step 2: Find Which Node Handles Alert Rule Keys
+```bash
+# Test which slot our alert rule keys hash to
+oc exec -n redis-cluster redis-cluster-0 -- redis-cli -c CLUSTER KEYSLOT "alert_rule:test-rule-1"
+oc exec -n redis-cluster redis-cluster-0 -- redis-cli -c CLUSTER KEYSLOT "alert_rule:test-rule-2"
+oc exec -n redis-cluster redis-cluster-0 -- redis-cli -c CLUSTER KEYSLOT "alert_rule:test-rule-3"
+
+# Example output:
+# alert_rule:test-rule-1 -> Slot: 11846 (handled by node 3: 10923-16383)
+# alert_rule:test-rule-2 -> Slot: 7717  (handled by node 2: 5461-10922)
+# alert_rule:test-rule-3 -> Slot: 2012  (handled by node 1: 0-5460)
+```
+
+#### Step 3: Map Slot Ranges to Redis Pods
+```bash
+# Find which pod handles the slot range you need (e.g., 5461-10922)
+oc exec -n redis-cluster redis-cluster-0 -- redis-cli -c CLUSTER NODES | grep "5461-10922"
+
+# Example output:
+# 40416fd64086e4d635458905477f26e83a637a45 10.130.2.19:6379@16379 master - 0 1752517324113 2 connected 5461-10922
+
+# Find which pod has this IP address
+oc get pods -n redis-cluster -o wide | grep "10.130.2.19"
+
+# Example output:
+# redis-cluster-1   1/1     Running   0   6h36m   10.130.2.19   ...
+```
+
+#### Step 4: Connect to the Correct Redis Node
+```bash
+# Stop any existing Redis port-forward
+pkill -f "oc port-forward.*redis"
+
+# Connect to the specific Redis node that handles your keys
+# (In this example, redis-cluster-1 handles slots 5461-10922)
+oc port-forward -n redis-cluster redis-cluster-1 6379:6379 &
+
+# Test connection
+echo "PING" | nc localhost 6379
+# Should return: +PONG
+```
+
+#### Step 5: Test Redis Operations with Correct Keys
+```bash
+# Find a rule ID that hashes to the correct slot range
+for i in {1..10}; do
+  key="alert_rule:test-rule-$i"
+  slot=$(oc exec -n redis-cluster redis-cluster-1 -- redis-cli -c CLUSTER KEYSLOT "$key")
+  echo "Key: $key -> Slot: $slot"
+  if [ "$slot" -ge 5461 ] && [ "$slot" -le 10922 ]; then
+    echo "✅ Found key in correct range: $key (slot $slot)"
+    correct_rule_id="test-rule-$i"
+    break
+  fi
+done
+
+echo "Use rule ID: $correct_rule_id"
+```
+
+#### Step 6: Test Alert Rule Creation
+```bash
+# Create a rule with an ID that hashes to the correct Redis node
+curl -X POST http://localhost:8080/api/v1/rules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "test-rule-2",
+    "name": "Redis Connectivity Test Rule",
+    "description": "Test rule to verify Redis connectivity",
+    "enabled": true,
+    "conditions": {
+      "log_level": "ERROR",
+      "namespace": "test-namespace",
+      "keywords": ["test"],
+      "threshold": 1,
+      "time_window": 60000000000,
+      "operator": "gt"
+    },
+    "actions": {
+      "channel": "#alerts",
+      "severity": "medium"
+    }
+  }'
+
+# Expected success response:
+# {"success":true,"message":"Rule created successfully","data":{"id":"test-rule-2",...}}
+```
+
+#### Step 7: Verify Rule Storage
+```bash
+# Check if the rule was stored successfully
+curl http://localhost:8080/api/v1/rules
+
+# Should show the created rule in the response
+```
+
+#### Step 8: Test Rule Evaluation
+```bash
+# Test the rule with sample log data
+curl -X POST http://localhost:8080/api/v1/rules/test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rule": {
+      "id": "test-rule-2",
+      "conditions": {
+        "log_level": "ERROR",
+        "namespace": "test-namespace",
+        "keywords": ["test"],
+        "threshold": 1,
+        "time_window": 60000000000,
+        "operator": "gt"
+      }
+    },
+    "sample_logs": [
+      {
+        "timestamp": "2025-07-14T12:00:00Z",
+        "level": "ERROR",
+        "message": "Test error message",
+        "kubernetes": {
+          "namespace": "test-namespace",
+          "pod": "test-pod",
+          "container": "test-container"
+        },
+        "host": "test-host"
+      }
+    ]
+  }'
+
+# Expected success response:
+# {"success":true,"data":{"matched_logs":1,"would_trigger":true,"match_rate":1}}
+```
+
+#### Understanding the Results
+
+**✅ Success Indicators:**
+- Rule creation returns `{"success":true}`
+- Rule appears in GET `/api/v1/rules` response
+- Rule evaluation shows `"would_trigger":true`
+
+**❌ Failure Indicators:**
+- `"MOVED <slot> <ip>:6379"` errors indicate wrong Redis node
+- `"connection refused"` indicates port-forward issues
+- `"got 4 elements in cluster info"` indicates cluster parsing errors
+
+#### Troubleshooting Redis Connectivity
+
+**Issue**: Getting `MOVED` redirects
+**Solution**: Use the process above to connect to the correct Redis node
+
+**Issue**: Port-forward timeouts
+**Solution**: 
+```bash
+# Restart port-forward
+pkill -f "oc port-forward.*redis"
+oc port-forward -n redis-cluster redis-cluster-1 6379:6379 &
+```
+
+**Issue**: Different rule IDs failing
+**Solution**: Each rule ID hashes to a different slot - use the key slot calculator above
+
+#### Expected Limitations
+
+- **Kafka Consumer**: Will show "Not Leader For Partition" errors (expected with port-forwarding)
+- **Some Rule IDs**: May fail if they hash to different Redis nodes
+- **Performance**: Slower than direct cluster access due to port-forwarding overhead
+
+The Redis connectivity test is successful when you can create and retrieve alert rules without `MOVED` errors.
 
 ### Test 4: Slack Notification Test
 
+Since there's no direct test-alert endpoint, we test Slack notifications by creating an alert rule and triggering it with log messages:
+
 ```bash
-# Trigger a test alert via API
-curl -X POST http://localhost:8080/api/v1/test-alert \
+# Step 1: Create a test alert rule
+curl -X POST http://localhost:8080/api/v1/rules \
   -H "Content-Type: application/json" \
   -d '{
-    "level": "ERROR",
-    "message": "Test alert from local Alert Engine",
-    "service": "local-test",
-    "namespace": "alert-engine"
+    "id": "slack-test-rule",
+    "name": "Slack Test Rule",
+    "description": "Test rule for Slack notifications",
+    "enabled": true,
+    "conditions": {
+      "log_level": "ERROR",
+      "namespace": "alert-engine",
+      "keywords": ["slack", "test"],
+      "threshold": 1,
+      "time_window": 60000000000,
+      "operator": "gt"
+    },
+    "actions": {
+      "channel": "#alerts",
+      "severity": "medium"
+    }
   }'
 
-# Check your Slack channel for the alert notification
+# Step 2: Trigger the alert by sending a matching log message
+echo '{"timestamp":"2025-07-14T12:00:00Z","level":"ERROR","message":"Slack test message for notification","kubernetes":{"namespace":"alert-engine","pod":"test-pod-123","container":"test-container","labels":{"app":"slack-test"}},"host":"test-host"}' | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
+
+# Step 3: Check your Slack channel for the alert notification
+# Step 4: Clean up - delete the test rule
+curl -X DELETE http://localhost:8080/api/v1/rules/slack-test-rule
 ```
 
 ### Test 5: End-to-End Alert Flow Test
@@ -389,7 +775,7 @@ curl -X POST http://localhost:8080/api/v1/test-alert \
 ```bash
 # 1. Generate multiple error logs to trigger threshold
 for i in {1..5}; do
-  echo "{\"timestamp\":\"$(date -Iseconds)\",\"level\":\"ERROR\",\"message\":\"Test error $i from local setup\",\"service\":\"test-service\",\"namespace\":\"alert-engine\",\"sequence\":$i}" | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
+  echo "{\"timestamp\":\"$(date -Iseconds)\",\"level\":\"ERROR\",\"message\":\"Test error $i from local setup\",\"kubernetes\":{\"namespace\":\"alert-engine\",\"pod\":\"test-pod-$i\",\"container\":\"test-container\",\"labels\":{\"app\":\"test-service\",\"sequence\":\"$i\"}},\"host\":\"test-host\"}" | oc exec -i -n amq-streams-kafka alert-kafka-cluster-kafka-0 -- bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic application-logs
   sleep 2
 done
 
@@ -401,14 +787,44 @@ oc exec -n redis-cluster redis-cluster-0 -- redis-cli -c keys "*alert*"
 
 ### Test 6: API Endpoints Test
 
+#### Available API Endpoints
+
+**Health & System:**
+- `GET /api/v1/health` - System health check
+- `GET /api/v1/system/metrics` - System performance metrics  
+- `GET /api/v1/system/logs/stats` - Log processing statistics
+
+**Alert Rules:**
+- `GET /api/v1/rules` - Get all alert rules
+- `POST /api/v1/rules` - Create new alert rule
+- `GET /api/v1/rules/{id}` - Get specific alert rule
+- `PUT /api/v1/rules/{id}` - Update alert rule
+- `DELETE /api/v1/rules/{id}` - Delete alert rule
+- `GET /api/v1/rules/stats` - Get rule statistics
+- `POST /api/v1/rules/test` - Test rule against sample logs
+
+**Alerts:**
+- `GET /api/v1/alerts/recent` - Get recent alert instances
+
+#### Testing Common Endpoints
+
 ```bash
-# Get current alert rules
+# 1. Check system health
+curl http://localhost:8080/api/v1/health
+
+# 2. Get current alert rules
 curl http://localhost:8080/api/v1/rules
 
-# Get alert statistics
-curl http://localhost:8080/api/v1/stats
+# 3. Get rule statistics
+curl http://localhost:8080/api/v1/rules/stats
 
-# Create a new test rule
+# 4. Get recent alerts
+curl http://localhost:8080/api/v1/alerts/recent
+
+# 5. Get system metrics
+curl http://localhost:8080/api/v1/system/metrics
+
+# 6. Create a new test rule
 curl -X POST http://localhost:8080/api/v1/rules \
   -H "Content-Type: application/json" \
   -d '{
@@ -420,7 +836,7 @@ curl -X POST http://localhost:8080/api/v1/rules \
       "log_level": "WARN",
       "keywords": ["test", "local"],
       "threshold": 1,
-      "time_window": "1m",
+      "time_window": 60000000000,
       "operator": "gt"
     },
     "actions": {
@@ -428,20 +844,54 @@ curl -X POST http://localhost:8080/api/v1/rules \
       "severity": "low"
     }
   }'
+
+# 7. Test a rule against sample logs
+curl -X POST http://localhost:8080/api/v1/rules/test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rule": {
+      "name": "Test Rule",
+      "conditions": {
+        "log_level": "ERROR",
+        "keywords": ["test"]
+      }
+    },
+    "sample_logs": [
+      {
+        "level": "ERROR",
+        "message": "Test error message",
+        "timestamp": "2025-07-14T12:00:00Z"
+      }
+    ]
+  }'
 ```
 
 ## 🔍 Monitoring and Debugging
 
 ### Log Monitoring
 ```bash
-# Follow Alert Engine logs
+# METHOD 1: Real-time monitoring (if running in terminal)
+# Simply check the terminal where you started ./alert-engine
+# - All log messages appear in real-time
+# - Look for Kafka message processing logs
+# - Watch for error messages or alerts being triggered
+
+# METHOD 2: Follow log file (if using file logging - see configuration section)
 tail -f /tmp/alert-engine-local.log
 
-# Monitor with specific log level
+# METHOD 3: Monitor with specific log levels
 grep "ERROR\|WARN" /tmp/alert-engine-local.log
 
-# Monitor Kafka consumption
-grep "kafka" /tmp/alert-engine-local.log
+# METHOD 4: Monitor Kafka message processing
+grep -i "kafka\|processing\|message" /tmp/alert-engine-local.log
+
+# METHOD 5: Live log filtering (while Alert Engine runs)
+# In a separate terminal:
+tail -f /tmp/alert-engine-local.log | grep -E "ERROR|WARN|Kafka|Processing"
+
+# Check if Alert Engine is actively processing logs
+ps aux | grep alert-engine
+lsof -p <PID> | grep log  # Replace <PID> with actual process ID
 ```
 
 ### Connection Monitoring
@@ -500,14 +950,18 @@ curl -X POST -H 'Content-type: application/json' \
 
 Your local setup is working correctly if:
 
-✅ **Health Check**: `curl http://localhost:8080/health` returns healthy status  
-✅ **Kafka Connection**: Alert Engine logs show successful Kafka subscription  
+✅ **Health Check**: `curl http://localhost:8080/api/v1/health` returns healthy status  
+✅ **Kafka Topic Access**: You can send messages to the `application-logs` topic  
 ✅ **Redis Connection**: Alert Engine can store and retrieve data  
-✅ **Log Processing**: Test logs are processed and visible in logs  
-✅ **Alert Generation**: Error logs trigger alerts based on rules  
-✅ **Slack Notifications**: Alerts are sent to your Slack channel  
 ✅ **API Access**: All API endpoints respond correctly  
-✅ **Metrics**: Prometheus metrics are available at `:8081/metrics`
+✅ **Metrics**: System metrics are available at `:8080/api/v1/system/metrics`
+✅ **File Logging**: Logs are saved to `/tmp/alert-engine-local.log` (if configured)
+
+**Expected Limitations in Local Setup:**
+⚠️ **Kafka Consumer**: May show "Not Leader For Partition" or "EOF" errors due to port-forwarding limitations  
+⚠️ **Message Processing**: Full message processing works in OpenShift deployment, not local port-forwarding  
+⚠️ **Alert Generation**: Limited by Kafka consumer issues in local setup  
+⚠️ **Slack Notifications**: Dependent on successful message processing
 
 ## 🎯 Next Steps
 

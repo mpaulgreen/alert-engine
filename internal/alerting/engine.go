@@ -113,7 +113,7 @@ func (e *Engine) matchesConditions(logEntry models.LogEntry, conditions models.A
 	}
 
 	// Check namespace
-	if conditions.Namespace != "" && logEntry.Kubernetes.Namespace != conditions.Namespace {
+	if conditions.Namespace != "" && logEntry.GetNamespace() != conditions.Namespace {
 		return false
 	}
 
@@ -172,7 +172,7 @@ func (e *Engine) buildAlertMessage(rule models.AlertRule, logEntry models.LogEnt
 			"Message: %s",
 		rule.Name,
 		logEntry.Kubernetes.Labels["app"],
-		logEntry.Kubernetes.Namespace,
+		logEntry.GetNamespace(),
 		logEntry.Level,
 		count,
 		rule.Conditions.TimeWindow.String(),

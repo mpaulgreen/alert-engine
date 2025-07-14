@@ -139,7 +139,7 @@ func (m *MockAlertEngine) CountLogsByNamespace(namespace string) int {
 
 	count := 0
 	for _, log := range m.evaluatedLogs {
-		if log.Kubernetes.Namespace == namespace {
+		if log.GetNamespace() == namespace {
 			count++
 		}
 	}

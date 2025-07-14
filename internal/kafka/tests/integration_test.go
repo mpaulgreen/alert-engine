@@ -198,7 +198,7 @@ func TestKafkaProcessorIntegration(t *testing.T) {
 	t.Run("processor connects to real Kafka", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 
-		processor := kafka.NewLogProcessor(kafkaContainer.GetBrokers(), "test-logs", mockAlertEngine)
+		processor := kafka.NewLogProcessor(kafkaContainer.GetBrokers(), "test-logs", "test-group", mockAlertEngine)
 		require.NotNil(t, processor)
 
 		// Test basic processor operations
@@ -217,7 +217,7 @@ func TestKafkaProcessorIntegration(t *testing.T) {
 	t.Run("processor processes real messages", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 
-		processor := kafka.NewLogProcessor(kafkaContainer.GetBrokers(), "error-logs", mockAlertEngine)
+		processor := kafka.NewLogProcessor(kafkaContainer.GetBrokers(), "error-logs", "test-group", mockAlertEngine)
 		require.NotNil(t, processor)
 
 		// Create and produce test message
@@ -272,7 +272,7 @@ func TestKafkaProcessorIntegration(t *testing.T) {
 	t.Run("batch processor integration", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 
-		processor := kafka.NewLogProcessor(kafkaContainer.GetBrokers(), "batch-logs", mockAlertEngine)
+		processor := kafka.NewLogProcessor(kafkaContainer.GetBrokers(), "batch-logs", "test-group", mockAlertEngine)
 		batchProcessor := kafka.NewBatchLogProcessor(processor, 5, 1*time.Second)
 		require.NotNil(t, batchProcessor)
 

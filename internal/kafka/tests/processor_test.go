@@ -17,33 +17,22 @@ import (
 )
 
 func TestNewLogProcessor(t *testing.T) {
-	t.Run("creates log processor successfully", func(t *testing.T) {
-		mockAlertEngine := mocks.NewMockAlertEngine()
-		brokers := []string{"localhost:9092"}
-		topic := "test-topic"
+	mockAlertEngine := &mocks.MockAlertEngine{}
+	brokers := []string{"localhost:9092"}
+	topic := "test-topic"
+	groupID := "test-group"
 
-		processor := kafka.NewLogProcessor(brokers, topic, mockAlertEngine)
+	processor := kafka.NewLogProcessor(brokers, topic, groupID, mockAlertEngine)
 
-		assert.NotNil(t, processor)
-	})
-
-	t.Run("creates processor with correct default config", func(t *testing.T) {
-		mockAlertEngine := mocks.NewMockAlertEngine()
-		brokers := []string{"localhost:9092", "localhost:9093"}
-		topic := "application-logs"
-
-		processor := kafka.NewLogProcessor(brokers, topic, mockAlertEngine)
-
-		assert.NotNil(t, processor)
-		// Processor should be initialized with defaults
-	})
+	assert.NotNil(t, processor)
+	assert.Equal(t, mockAlertEngine, processor.GetAlertEngine())
 }
 
 func TestLogProcessor_ProcessLogs(t *testing.T) {
 	t.Run("processes valid log message", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
@@ -61,7 +50,7 @@ func TestLogProcessor_ProcessLogs(t *testing.T) {
 
 	t.Run("handles context cancellation", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
@@ -73,7 +62,7 @@ func TestLogProcessor_ProcessLogs(t *testing.T) {
 
 	t.Run("handles processing errors with retry", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
@@ -167,7 +156,7 @@ func TestLogProcessor_ValidateLogEntry(t *testing.T) {
 func TestLogProcessor_GetMetrics(t *testing.T) {
 	t.Run("returns processor metrics", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		metrics := processor.GetMetrics()
 		assert.NotNil(t, metrics)
@@ -181,7 +170,7 @@ func TestLogProcessor_GetMetrics(t *testing.T) {
 func TestLogProcessor_HealthCheck(t *testing.T) {
 	t.Run("returns healthy status initially", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		healthy := processor.HealthCheck()
 		// Should be unhealthy initially as no messages have been processed
@@ -190,7 +179,7 @@ func TestLogProcessor_HealthCheck(t *testing.T) {
 
 	t.Run("detects unhealthy state with high error rate", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		// Simulate high error rate by manipulating metrics
 		metrics := processor.GetMetrics()
@@ -204,7 +193,7 @@ func TestLogProcessor_HealthCheck(t *testing.T) {
 
 	t.Run("healthy with recent processing", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		// Simulate recent successful processing
 		metrics := processor.GetMetrics()
@@ -221,7 +210,7 @@ func TestLogProcessor_HealthCheck(t *testing.T) {
 func TestLogProcessor_Stop(t *testing.T) {
 	t.Run("stops processor gracefully", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		err := processor.Stop()
 		assert.NoError(t, err)
@@ -231,7 +220,7 @@ func TestLogProcessor_Stop(t *testing.T) {
 func TestBatchLogProcessor(t *testing.T) {
 	t.Run("creates batch processor", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		batchProcessor := kafka.NewBatchLogProcessor(processor, 10, time.Second)
 		assert.NotNil(t, batchProcessor)
@@ -239,7 +228,7 @@ func TestBatchLogProcessor(t *testing.T) {
 
 	t.Run("processes logs in batches", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		batchProcessor := kafka.NewBatchLogProcessor(processor, 5, 100*time.Millisecond)
 
@@ -259,7 +248,7 @@ func TestBatchLogProcessor(t *testing.T) {
 
 	t.Run("flushes on context cancellation", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		batchProcessor := kafka.NewBatchLogProcessor(processor, 10, time.Minute)
 
@@ -273,7 +262,7 @@ func TestBatchLogProcessor(t *testing.T) {
 
 	t.Run("flushes on timer", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		// Short flush interval for testing
 		batchProcessor := kafka.NewBatchLogProcessor(processor, 100, 50*time.Millisecond)
@@ -307,8 +296,9 @@ func TestProcessorFactory(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 		brokers := []string{"localhost:9092"}
 		topic := "test-topic"
+		groupID := "test-group"
 
-		processor, err := factory.CreateProcessor(brokers, topic, mockAlertEngine)
+		processor, err := factory.CreateProcessor(brokers, topic, groupID, mockAlertEngine)
 		require.NoError(t, err)
 		assert.NotNil(t, processor)
 	})
@@ -320,8 +310,9 @@ func TestProcessorFactory(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 		brokers := []string{"localhost:9092"}
 		topic := "test-topic"
+		groupID := "test-group"
 
-		batchProcessor, err := factory.CreateBatchProcessor(brokers, topic, mockAlertEngine)
+		batchProcessor, err := factory.CreateBatchProcessor(brokers, topic, groupID, mockAlertEngine)
 		require.NoError(t, err)
 		assert.NotNil(t, batchProcessor)
 	})
@@ -337,10 +328,11 @@ func TestProcessorFactory(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 		brokers := []string{} // Empty brokers will cause panic
 		topic := ""
+		groupID := "test-group"
 
 		// Factory should panic when trying to create processor with empty brokers
 		assert.Panics(t, func() {
-			factory.CreateProcessor(brokers, topic, mockAlertEngine)
+			factory.CreateProcessor(brokers, topic, groupID, mockAlertEngine)
 		})
 	})
 }
@@ -423,7 +415,7 @@ func TestProcessorConfig_EdgeCases(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 		factory := kafka.NewProcessorFactory(config)
 
-		processor, err := factory.CreateProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor, err := factory.CreateProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 		require.NoError(t, err)
 		assert.NotNil(t, processor)
 	})
@@ -432,7 +424,7 @@ func TestProcessorConfig_EdgeCases(t *testing.T) {
 func TestProcessorMetrics(t *testing.T) {
 	t.Run("tracks processing metrics", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		metrics := processor.GetMetrics()
 
@@ -458,7 +450,7 @@ func TestProcessorMetrics(t *testing.T) {
 func TestProcessor_ConcurrentAccess(t *testing.T) {
 	t.Run("handles concurrent access safely", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
@@ -490,7 +482,7 @@ func TestProcessor_AlertEngineIntegration(t *testing.T) {
 	t.Run("integrates with alert engine", func(t *testing.T) {
 		mockAlertEngine := mocks.NewMockAlertEngine()
 		// Create processor to ensure it can be instantiated with the alert engine
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 		assert.NotNil(t, processor)
 
 		// Create a valid log entry
@@ -521,7 +513,7 @@ func TestProcessor_AlertEngineIntegration(t *testing.T) {
 		mockAlertEngine.SetShouldPanic(true)
 
 		// Should handle panic gracefully (in real implementation)
-		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", mockAlertEngine)
+		processor := kafka.NewLogProcessor([]string{"localhost:9092"}, "test-topic", "test-group", mockAlertEngine)
 		assert.NotNil(t, processor)
 	})
 }

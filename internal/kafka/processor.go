@@ -39,12 +39,12 @@ type ProcessorMetrics struct {
 }
 
 // NewLogProcessor creates a new log processor
-func NewLogProcessor(brokers []string, topic string, alertEngine AlertEngine) *LogProcessor {
+func NewLogProcessor(brokers []string, topic string, groupID string, alertEngine AlertEngine) *LogProcessor {
 	config := ProcessorConfig{
 		ConsumerConfig: ConsumerConfig{
 			Brokers:     brokers,
 			Topic:       topic,
-			GroupID:     "log-monitoring-group",
+			GroupID:     groupID,
 			MinBytes:    10e3, // 10KB
 			MaxBytes:    10e6, // 10MB
 			MaxWait:     1 * time.Second,
@@ -80,14 +80,6 @@ func (lp *LogProcessor) ProcessLogs(ctx context.Context) error {
 			if err := lp.processMessage(ctx); err != nil {
 				lp.metrics.MessagesFailure++
 				log.Printf("Error processing message: %v", err)
-
-				// Retry logic
-				if lp.config.RetryAttempts > 0 {
-					if err := lp.retryProcessing(ctx); err != nil {
-						log.Printf("Retry failed: %v", err)
-					}
-				}
-
 				continue
 			}
 
@@ -134,8 +126,13 @@ func (lp *LogProcessor) processMessage(ctx context.Context) error {
 
 // validateLogEntry validates a log entry
 func (lp *LogProcessor) validateLogEntry(logEntry models.LogEntry) error {
-	if logEntry.Timestamp.IsZero() {
-		logEntry.Timestamp = time.Now()
+	if logEntry.Timestamp.IsZero() && logEntry.AtTimestamp.IsZero() {
+		// Use @timestamp if timestamp is not set
+		if !logEntry.AtTimestamp.IsZero() {
+			logEntry.Timestamp = logEntry.AtTimestamp
+		} else {
+			logEntry.Timestamp = time.Now()
+		}
 	}
 
 	if logEntry.Level == "" {
@@ -146,30 +143,12 @@ func (lp *LogProcessor) validateLogEntry(logEntry models.LogEntry) error {
 		return fmt.Errorf("log entry message is empty")
 	}
 
-	if logEntry.Kubernetes.Namespace == "" {
+	// Use the new GetNamespace() method to check for namespace
+	if logEntry.GetNamespace() == "" {
 		return fmt.Errorf("log entry missing kubernetes namespace")
 	}
 
 	return nil
-}
-
-// retryProcessing implements retry logic for failed messages
-func (lp *LogProcessor) retryProcessing(ctx context.Context) error {
-	for attempt := 1; attempt <= lp.config.RetryAttempts; attempt++ {
-		log.Printf("Retry attempt %d/%d", attempt, lp.config.RetryAttempts)
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(lp.config.RetryDelay * time.Duration(attempt)):
-			if err := lp.processMessage(ctx); err == nil {
-				log.Printf("Retry successful on attempt %d", attempt)
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("all retry attempts failed")
 }
 
 // updateErrorRate calculates and updates the error rate
@@ -328,10 +307,11 @@ func NewProcessorFactory(config ProcessorConfig) *ProcessorFactory {
 }
 
 // CreateProcessor creates a processor based on configuration
-func (pf *ProcessorFactory) CreateProcessor(brokers []string, topic string, alertEngine AlertEngine) (*LogProcessor, error) {
+func (pf *ProcessorFactory) CreateProcessor(brokers []string, topic string, groupID string, alertEngine AlertEngine) (*LogProcessor, error) {
 	config := pf.config
 	config.ConsumerConfig.Brokers = brokers
 	config.ConsumerConfig.Topic = topic
+	config.ConsumerConfig.GroupID = groupID
 
 	consumer := NewConsumer(config.ConsumerConfig, alertEngine)
 
@@ -344,8 +324,8 @@ func (pf *ProcessorFactory) CreateProcessor(brokers []string, topic string, aler
 }
 
 // CreateBatchProcessor creates a batch processor
-func (pf *ProcessorFactory) CreateBatchProcessor(brokers []string, topic string, alertEngine AlertEngine) (*BatchLogProcessor, error) {
-	processor, err := pf.CreateProcessor(brokers, topic, alertEngine)
+func (pf *ProcessorFactory) CreateBatchProcessor(brokers []string, topic string, groupID string, alertEngine AlertEngine) (*BatchLogProcessor, error) {
+	processor, err := pf.CreateProcessor(brokers, topic, groupID, alertEngine)
 	if err != nil {
 		return nil, err
 	}

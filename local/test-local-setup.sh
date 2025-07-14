@@ -41,8 +41,8 @@ cd "$(dirname "$0")/.."
 
 # Test 1: Check if Alert Engine is running
 print_test "Alert Engine Health Check"
-if curl -s -f http://localhost:8080/health > /dev/null; then
-    HEALTH_RESPONSE=$(curl -s http://localhost:8080/health)
+if curl -s -f http://localhost:8080/api/v1/health > /dev/null; then
+    HEALTH_RESPONSE=$(curl -s http://localhost:8080/api/v1/health)
     print_success "Alert Engine is healthy: $HEALTH_RESPONSE"
 else
     print_error "Alert Engine is not running or not healthy"
@@ -50,13 +50,13 @@ else
     exit 1
 fi
 
-# Test 2: Check metrics endpoint
-print_test "Metrics Endpoint"
-if curl -s -f http://localhost:8081/metrics > /dev/null; then
-    METRICS_COUNT=$(curl -s http://localhost:8081/metrics | wc -l)
-    print_success "Metrics endpoint is working ($METRICS_COUNT metrics)"
+# Test 2: Check system metrics endpoint
+print_test "System Metrics Endpoint"
+if curl -s -f http://localhost:8080/api/v1/system/metrics > /dev/null; then
+    METRICS_RESPONSE=$(curl -s http://localhost:8080/api/v1/system/metrics)
+    print_success "System metrics endpoint is working"
 else
-    print_warning "Metrics endpoint is not accessible"
+    print_warning "System metrics endpoint is not accessible"
 fi
 
 # Test 3: Test Kafka connectivity by sending a test message
