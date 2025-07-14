@@ -36,12 +36,10 @@ This guide assumes you're working from the `alert-engine` directory. The project
 alert-engine/
 ├── local/                          # Local development files
 │   ├── LOCAL_SETUP_GUIDE.md        # This comprehensive guide
-│   ├── QUICK_START.md              # Quick setup reference
 │   ├── README.md                   # Local development overview
 │   ├── local-setup.sh              # Automated local setup script
 │   ├── setup-port-forwards.sh      # OpenShift port forwarding setup
-│   ├── start-local.sh              # Start Alert Engine locally
-│   └── test-local-setup.sh         # Validation and testing script
+│   └── start-local.sh              # Start Alert Engine locally
 ├── scripts/                        # Testing and automation scripts
 │   ├── README.md                   # Testing documentation
 │   ├── run_integration_tests.sh    # Integration test runner
@@ -63,7 +61,6 @@ alert-engine/
 - **`local-setup.sh`** - Main setup script that builds the project, creates config files, and sets up environment
 - **`setup-port-forwards.sh`** - Sets up port forwarding to OpenShift services (Kafka & Redis)
 - **`start-local.sh`** - Starts the Alert Engine with all prerequisite checks
-- **`test-local-setup.sh`** - Comprehensive testing script to validate the setup
 
 #### Testing Scripts (`scripts/`)
 - **`run_unit_tests.sh`** - Runs all unit tests with coverage reporting
