@@ -1,5 +1,5 @@
-# Alert Engine - Phase 0: Foundation & Proof of Concept [In Progress]
-
+# NLP Alert Engine - Phase 0: Foundation & Proof of Concept [In Progress]
+### An ALERT SYSTEM been developed using Cursor
 A Go-based alert engine for monitoring application logs in OpenShift environments with real-time alerting via Slack.
 
 ## 🚀 Overview
