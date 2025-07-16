@@ -23,6 +23,12 @@ A Go-based alert engine for monitoring application logs in OpenShift environment
 - Can send Slack notification within 30 seconds
 - No data loss in log pipeline
 
+## Vision
+
+For the long-term vision and NLP-based alert pattern analysis that will guide future development phases, refer to:
+
+**🧠 [NLP Alert Patterns Analysis](inputs/nlp_alert_patterns.md)** - Comprehensive analysis of natural language processing patterns for intelligent log monitoring and advanced alert detection capabilities.
+
 ## 🚀 Overview
 
 The Alert Engine is a cloud-native solution designed to monitor application logs from OpenShift/Kubernetes environments, evaluate them against configurable alert rules, and send notifications to Slack channels. This implementation represents Phase 0 of a comprehensive log monitoring system.
