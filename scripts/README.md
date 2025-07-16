@@ -159,12 +159,29 @@ The script includes performance testing with actual results:
    ./scripts/run_integration_tests.sh logs
    ```
 
+6. **Podman Testcontainers "Bridge Network Not Found" Error**
+   ```bash
+   # Error: unable to find network with name or ID bridge: network not found
+   # This is automatically fixed by the testcontainers configuration in the test files
+   # The integration tests now auto-detect Podman and configure testcontainers properly
+   
+   # If you still see this error, ensure you're running the latest version of the tests
+   # You can also run tests directly (they include the Podman fixes):
+   go test -tags=integration -v ./internal/kafka -timeout=5m
+   go test -tags=integration -v ./internal/storage -timeout=5m
+   ```
+
 #### Recent Fixes Applied
 
 - **Fixed Kafka Health Check**: Updated to use internal port 29092 instead of 9092
 - **Container Engine Detection**: Now properly supports both Docker and Podman
 - **Removed Obsolete Version**: Cleaned up docker-compose.test.yml warnings
 - **Enhanced Error Handling**: Better error messages and troubleshooting guidance
+- **Podman Testcontainers Compatibility**: Fixed "bridge network not found" errors by:
+  - Auto-detecting Podman vs Docker runtime
+  - Configuring testcontainers for Podman compatibility
+  - Disabling Ryuk reaper for Podman (which requires bridge network)
+  - Setting proper Docker socket paths for testcontainers
 
 #### Alternative Direct Testing
 
@@ -172,18 +189,18 @@ If the script continues to fail, run tests directly:
 
 ```bash
 # Run all integration tests directly (using testcontainers)
-go test -tags=integration -v ./internal/api/tests/... -timeout=5m
-go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m
-go test -tags=integration -v ./internal/storage/tests/... -timeout=5m
-go test -tags=integration -v ./internal/kafka/tests/... -timeout=5m
+go test -tags=integration -v ./internal/api -timeout=5m
+go test -tags=integration -v ./internal/notifications -timeout=3m
+go test -tags=integration -v ./internal/storage -timeout=5m
+go test -tags=integration -v ./internal/kafka -timeout=5m
 
 # Run all unit tests directly (all packages use -tags=unit)
-go test -tags=unit -v ./pkg/models/tests/... -timeout=2m
-go test -tags=unit -v ./internal/alerting/tests/... -timeout=2m
-go test -tags=unit -v ./internal/api/tests/... -timeout=2m
-go test -tags=unit -v ./internal/kafka/tests/... -timeout=2m
-go test -tags=unit -v ./internal/notifications/tests/... -timeout=2m
-go test -tags=unit -v ./internal/storage/tests/... -timeout=2m
+go test -tags=unit -v ./pkg/models -timeout=2m
+go test -tags=unit -v ./internal/alerting -timeout=2m
+go test -tags=unit -v ./internal/api -timeout=2m
+go test -tags=unit -v ./internal/kafka -timeout=2m
+go test -tags=unit -v ./internal/notifications -timeout=2m
+go test -tags=unit -v ./internal/storage -timeout=2m
 
 # Run all tests together
 go test -tags=unit -v ./... -timeout=5m

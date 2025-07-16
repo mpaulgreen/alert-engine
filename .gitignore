@@ -35,6 +35,11 @@ Thumbs.db
 # Logs
 *.log
 logs/
+setup.log
+teardown.log
+e2e_test_results.log
+forwarder.log
+/tmp/alert-engine-local.log
 
 # Temporary files
 tmp/
@@ -61,6 +66,15 @@ coverage.out
 coverage.html
 coverage.txt
 *.cover
+coverage_*.html
+coverage_*.out
+*_coverage.html
+*_coverage.out
+combined_coverage.out
+unit_coverage.out
+integration_coverage.out
+test_coverage.out
+alerting.out
 
 # Benchmark and profiling files
 *.bench
@@ -90,3 +104,6 @@ dump.rdb
 
 #ide files
 .idea
+
+venv
+__pycache__

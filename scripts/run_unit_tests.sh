@@ -89,33 +89,33 @@ main() {
     print_status $YELLOW "=== UNIT TESTS ==="
     
     echo "Testing pkg/models..."
-    run_package_tests "./pkg/models/tests" "pkg/models"
+    run_package_tests "./pkg/models" "pkg/models"
     
     echo "Testing internal/alerting..."
-    run_package_tests "./internal/alerting/tests" "internal/alerting"
+    run_package_tests "./internal/alerting" "internal/alerting"
     
     echo "Testing internal/api..."
-    run_package_tests "./internal/api/tests" "internal/api"
+    run_package_tests "./internal/api" "internal/api"
     
     echo "Testing internal/kafka..."
-    run_package_tests "./internal/kafka/tests" "internal/kafka"
+    run_package_tests "./internal/kafka" "internal/kafka"
     
     echo "Testing internal/notifications..."
-    run_package_tests "./internal/notifications/tests" "internal/notifications"
+    run_package_tests "./internal/notifications" "internal/notifications"
     
     echo "Testing internal/storage..."
-    run_package_tests "./internal/storage/tests" "internal/storage"
+    run_package_tests "./internal/storage" "internal/storage"
     
     # Run coverage tests if requested
     if [ "$1" = "--coverage" ]; then
         print_status $YELLOW "=== COVERAGE TESTS ==="
         
-        run_coverage_tests "./pkg/models/tests" "models"
-        run_coverage_tests "./internal/alerting/tests" "alerting"
-        run_coverage_tests "./internal/api/tests" "api"
-        run_coverage_tests "./internal/kafka/tests" "kafka"
-        run_coverage_tests "./internal/notifications/tests" "notifications"
-        run_coverage_tests "./internal/storage/tests" "storage"
+        run_coverage_tests "./pkg/models" "models"
+        run_coverage_tests "./internal/alerting" "alerting"
+        run_coverage_tests "./internal/api" "api"
+        run_coverage_tests "./internal/kafka" "kafka"
+        run_coverage_tests "./internal/notifications" "notifications"
+        run_coverage_tests "./internal/storage" "storage"
         
         # Generate combined coverage report
         print_status $YELLOW "Generating combined coverage report..."

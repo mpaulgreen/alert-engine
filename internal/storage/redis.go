@@ -70,7 +70,7 @@ func (r *RedisStore) GetAlertRules() ([]models.AlertRule, error) {
 		return nil, fmt.Errorf("failed to get alert rule keys: %w", err)
 	}
 
-	var rules []models.AlertRule
+	rules := make([]models.AlertRule, 0)
 	for _, key := range keys {
 		val, err := r.client.Get(r.ctx, key).Result()
 		if err != nil {
@@ -263,7 +263,7 @@ func (r *RedisStore) GetRecentAlerts(limit int) ([]models.Alert, error) {
 		return nil, fmt.Errorf("failed to get alert keys: %w", err)
 	}
 
-	var alerts []models.Alert
+	alerts := make([]models.Alert, 0)
 	for _, key := range keys {
 		val, err := r.client.Get(r.ctx, key).Result()
 		if err != nil {

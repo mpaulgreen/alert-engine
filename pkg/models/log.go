@@ -10,8 +10,10 @@ type LogEntry struct {
 	AtTimestamp   time.Time      `json:"@timestamp"`
 	Level         string         `json:"level"`
 	Message       string         `json:"message"`
+	Service       string         `json:"service"`   // Service name field
+	Namespace     string         `json:"namespace"` // Top-level namespace field (common)
 	Kubernetes    KubernetesInfo `json:"kubernetes"`
-	NamespaceName string         `json:"namespace_name"` // Top-level namespace field
+	NamespaceName string         `json:"namespace_name"` // Alternative namespace field
 	Host          string         `json:"host"`
 	Hostname      string         `json:"hostname"`
 	LogSource     string         `json:"log_source"`
@@ -36,7 +38,12 @@ type KubernetesInfo struct {
 
 // GetNamespace returns the namespace from the log entry, checking multiple possible fields
 func (le *LogEntry) GetNamespace() string {
-	// Check top-level namespace_name first
+	// Check top-level namespace first (most common format)
+	if le.Namespace != "" {
+		return le.Namespace
+	}
+
+	// Check top-level namespace_name (alternative format)
 	if le.NamespaceName != "" {
 		return le.NamespaceName
 	}

@@ -433,16 +433,77 @@ oc logs -f deployment/alert-engine -n log-monitoring --since=1h
 
 ### Testing
 
+The Alert Engine includes comprehensive testing infrastructure with dedicated scripts for different test types:
+
+#### Unit Tests
+Run unit tests for all packages using standardized build tags:
+
 ```bash
-# Run unit tests
-go test ./...
+# Run all unit tests
+./scripts/run_unit_tests.sh
 
-# Run with coverage
-go test -cover ./...
+# Run unit tests with coverage analysis and HTML reports
+./scripts/run_unit_tests.sh --coverage
 
-# Test specific package
-go test ./internal/alerting
+# Run unit tests for specific package
+go test -tags=unit -v ./pkg/models
+go test -tags=unit -v ./internal/alerting
 ```
+
+#### Integration Tests
+Run integration tests with Docker/Podman containers for external dependencies:
+
+```bash
+# Run all integration tests with container setup
+./scripts/run_integration_tests.sh
+
+# Skip health checks (bypass networking issues)
+SKIP_HEALTH_CHECK=true ./scripts/run_integration_tests.sh
+
+# Run specific integration test packages
+go test -tags=integration -v ./internal/kafka -timeout=5m
+go test -tags=integration -v ./internal/storage -timeout=5m
+```
+
+#### Kafka Integration Tests
+Specialized script for Kafka-specific testing with multiple execution modes:
+
+```bash
+# Run Kafka integration tests (safe sequential mode)
+./scripts/run_kafka_integration_tests.sh
+
+# Run with race detection
+./scripts/run_kafka_integration_tests.sh -m race-safe -r
+
+# Run in parallel mode (faster, may have conflicts)
+./scripts/run_kafka_integration_tests.sh -m parallel
+```
+
+#### Test Coverage
+
+Current test coverage by package:
+- **pkg/models**: 100% (45 unit tests)
+- **internal/alerting**: 107 unit tests
+- **internal/api**: 35 unit tests + integration tests
+- **internal/kafka**: 57 unit tests + integration tests
+- **internal/notifications**: 35 unit tests + integration tests (85.5% coverage)
+- **internal/storage**: 13 unit tests + integration tests
+
+#### E2E Testing
+For end-to-end testing with real Slack notifications:
+
+```bash
+# Set up local E2E environment
+cd local_e2e/setup && ./setup_local_e2e.sh
+
+# Run comprehensive E2E tests
+cd local_e2e/tests && ./run_e2e_tests.sh
+```
+
+For detailed testing documentation, see:
+- [`scripts/README.md`](scripts/README.md) - Complete script documentation
+- [`scripts/test_strategy.md`](scripts/test_strategy.md) - Testing strategy and structure
+- Individual package README files for package-specific test information
 
 ### Building
 

@@ -8,25 +8,38 @@ import (
 	"time"
 
 	"github.com/log-monitoring/alert-engine/pkg/models"
-	"github.com/segmentio/kafka-go"
 )
+
+// StateStore interface for log statistics
+type StateStore interface {
+	SaveLogStats(stats models.LogStats) error
+	GetLogStats() (*models.LogStats, error)
+}
 
 // LogProcessor processes log messages from Kafka
 type LogProcessor struct {
 	consumer    *Consumer
 	alertEngine AlertEngine
+	stateStore  StateStore
 	config      ProcessorConfig
 	metrics     *ProcessorMetrics
+	logStats    *models.LogStats
+}
+
+// LogProcessingConfig holds log processing specific configuration
+type LogProcessingConfig struct {
+	BatchSize       int           `json:"batch_size"`
+	FlushInterval   time.Duration `json:"flush_interval"`
+	RetryAttempts   int           `json:"retry_attempts"`
+	RetryDelay      time.Duration `json:"retry_delay"`
+	EnableMetrics   bool          `json:"enable_metrics"`
+	DefaultLogLevel string        `json:"default_log_level"` // Default level for missing log levels
 }
 
 // ProcessorConfig holds configuration for the log processor
 type ProcessorConfig struct {
-	ConsumerConfig ConsumerConfig `json:"consumer_config"`
-	BatchSize      int            `json:"batch_size"`
-	FlushInterval  time.Duration  `json:"flush_interval"`
-	RetryAttempts  int            `json:"retry_attempts"`
-	RetryDelay     time.Duration  `json:"retry_delay"`
-	EnableMetrics  bool           `json:"enable_metrics"`
+	ConsumerConfig      ConsumerConfig      `json:"consumer_config"`
+	LogProcessingConfig LogProcessingConfig `json:"log_processing_config"`
 }
 
 // ProcessorMetrics tracks processing metrics
@@ -38,32 +51,30 @@ type ProcessorMetrics struct {
 	ErrorRate         float64       `json:"error_rate"`
 }
 
-// NewLogProcessor creates a new log processor
-func NewLogProcessor(brokers []string, topic string, groupID string, alertEngine AlertEngine) *LogProcessor {
+// NewLogProcessor creates a new log processor with log processing configuration
+func NewLogProcessor(consumerConfig ConsumerConfig, logProcessingConfig LogProcessingConfig, alertEngine AlertEngine, stateStore StateStore) *LogProcessor {
 	config := ProcessorConfig{
-		ConsumerConfig: ConsumerConfig{
-			Brokers:     brokers,
-			Topic:       topic,
-			GroupID:     groupID,
-			MinBytes:    10e3, // 10KB
-			MaxBytes:    10e6, // 10MB
-			MaxWait:     1 * time.Second,
-			StartOffset: kafka.LastOffset,
-		},
-		BatchSize:     100,
-		FlushInterval: 5 * time.Second,
-		RetryAttempts: 3,
-		RetryDelay:    1 * time.Second,
-		EnableMetrics: true,
+		ConsumerConfig:      consumerConfig,
+		LogProcessingConfig: logProcessingConfig,
 	}
 
 	consumer := NewConsumer(config.ConsumerConfig, alertEngine)
 
+	// Initialize log stats
+	logStats := &models.LogStats{
+		TotalLogs:     0,
+		LogsByLevel:   make(map[string]int64),
+		LogsByService: make(map[string]int64),
+		LastUpdated:   time.Now(),
+	}
+
 	return &LogProcessor{
 		consumer:    consumer,
 		alertEngine: alertEngine,
+		stateStore:  stateStore,
 		config:      config,
 		metrics:     &ProcessorMetrics{},
+		logStats:    logStats,
 	}
 }
 
@@ -110,13 +121,16 @@ func (lp *LogProcessor) processMessage(ctx context.Context) error {
 	logEntry.Raw = string(msg.Value)
 
 	// Validate log entry
-	if err := lp.validateLogEntry(logEntry); err != nil {
+	if err := lp.validateLogEntry(&logEntry); err != nil {
 		log.Printf("Invalid log entry: %v", err)
 		return err
 	}
 
 	// Process through alert engine
 	lp.alertEngine.EvaluateLog(logEntry)
+
+	// Update log statistics
+	lp.updateLogStats(logEntry)
 
 	// Update metrics
 	lp.metrics.ProcessingTime = time.Since(startTime)
@@ -125,8 +139,8 @@ func (lp *LogProcessor) processMessage(ctx context.Context) error {
 }
 
 // validateLogEntry validates a log entry
-func (lp *LogProcessor) validateLogEntry(logEntry models.LogEntry) error {
-	if logEntry.Timestamp.IsZero() && logEntry.AtTimestamp.IsZero() {
+func (lp *LogProcessor) validateLogEntry(logEntry *models.LogEntry) error {
+	if logEntry.Timestamp.IsZero() {
 		// Use @timestamp if timestamp is not set
 		if !logEntry.AtTimestamp.IsZero() {
 			logEntry.Timestamp = logEntry.AtTimestamp
@@ -136,7 +150,12 @@ func (lp *LogProcessor) validateLogEntry(logEntry models.LogEntry) error {
 	}
 
 	if logEntry.Level == "" {
-		logEntry.Level = "INFO"
+		// Use configured default log level instead of hardcoded "INFO"
+		defaultLevel := lp.config.LogProcessingConfig.DefaultLogLevel
+		if defaultLevel == "" {
+			defaultLevel = "INFO"
+		}
+		logEntry.Level = defaultLevel
 	}
 
 	if logEntry.Message == "" {
@@ -156,6 +175,36 @@ func (lp *LogProcessor) updateErrorRate() {
 	total := lp.metrics.MessagesProcessed + lp.metrics.MessagesFailure
 	if total > 0 {
 		lp.metrics.ErrorRate = float64(lp.metrics.MessagesFailure) / float64(total)
+	}
+}
+
+// updateLogStats updates log processing statistics
+func (lp *LogProcessor) updateLogStats(logEntry models.LogEntry) {
+	// Update total logs
+	lp.logStats.TotalLogs++
+
+	// Update logs by level
+	if lp.logStats.LogsByLevel == nil {
+		lp.logStats.LogsByLevel = make(map[string]int64)
+	}
+	lp.logStats.LogsByLevel[logEntry.Level]++
+
+	// Update logs by service
+	if lp.logStats.LogsByService == nil {
+		lp.logStats.LogsByService = make(map[string]int64)
+	}
+	if logEntry.Service != "" {
+		lp.logStats.LogsByService[logEntry.Service]++
+	}
+
+	// Update timestamp
+	lp.logStats.LastUpdated = time.Now()
+
+	// Save to store every 100 logs to avoid too frequent writes
+	if lp.logStats.TotalLogs%100 == 0 {
+		if err := lp.stateStore.SaveLogStats(*lp.logStats); err != nil {
+			log.Printf("Error saving log stats: %v", err)
+		}
 	}
 }
 
@@ -264,7 +313,7 @@ func (blp *BatchLogProcessor) readAndBuffer(ctx context.Context) error {
 	}
 
 	// Validate log entry
-	if err := blp.processor.validateLogEntry(logEntry); err != nil {
+	if err := blp.processor.validateLogEntry(&logEntry); err != nil {
 		log.Printf("Invalid log entry: %v", err)
 		return err
 	}
@@ -312,40 +361,45 @@ func NewProcessorFactory(config ProcessorConfig) *ProcessorFactory {
 }
 
 // CreateProcessor creates a processor based on configuration
-func (pf *ProcessorFactory) CreateProcessor(brokers []string, topic string, groupID string, alertEngine AlertEngine) (*LogProcessor, error) {
-	config := pf.config
-	config.ConsumerConfig.Brokers = brokers
-	config.ConsumerConfig.Topic = topic
-	config.ConsumerConfig.GroupID = groupID
-
-	consumer := NewConsumer(config.ConsumerConfig, alertEngine)
-
-	return &LogProcessor{
-		consumer:    consumer,
-		alertEngine: alertEngine,
-		config:      config,
-		metrics:     &ProcessorMetrics{},
-	}, nil
+func (pf *ProcessorFactory) CreateProcessor(brokers []string, topic string, groupID string, alertEngine AlertEngine, stateStore StateStore) (*LogProcessor, error) {
+	consumerConfig := ConsumerConfig{
+		Brokers:     brokers,
+		Topic:       topic,
+		GroupID:     groupID,
+		MinBytes:    pf.config.ConsumerConfig.MinBytes,
+		MaxBytes:    pf.config.ConsumerConfig.MaxBytes,
+		MaxWait:     pf.config.ConsumerConfig.MaxWait,
+		StartOffset: pf.config.ConsumerConfig.StartOffset,
+	}
+	return NewLogProcessor(consumerConfig, pf.config.LogProcessingConfig, alertEngine, stateStore), nil
 }
 
 // CreateBatchProcessor creates a batch processor
-func (pf *ProcessorFactory) CreateBatchProcessor(brokers []string, topic string, groupID string, alertEngine AlertEngine) (*BatchLogProcessor, error) {
-	processor, err := pf.CreateProcessor(brokers, topic, groupID, alertEngine)
+func (pf *ProcessorFactory) CreateBatchProcessor(brokers []string, topic string, groupID string, alertEngine AlertEngine, stateStore StateStore) (*BatchLogProcessor, error) {
+	processor, err := pf.CreateProcessor(brokers, topic, groupID, alertEngine, stateStore)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewBatchLogProcessor(processor, pf.config.BatchSize, pf.config.FlushInterval), nil
+	return NewBatchLogProcessor(processor, pf.config.LogProcessingConfig.BatchSize, pf.config.LogProcessingConfig.FlushInterval), nil
+}
+
+// DefaultLogProcessingConfig returns default log processing configuration
+func DefaultLogProcessingConfig() LogProcessingConfig {
+	return LogProcessingConfig{
+		BatchSize:       50,               // Better default for testing
+		FlushInterval:   10 * time.Second, // Better default for testing
+		RetryAttempts:   3,
+		RetryDelay:      1 * time.Second,
+		EnableMetrics:   true,
+		DefaultLogLevel: "INFO", // Configurable default log level
+	}
 }
 
 // DefaultProcessorConfig returns default processor configuration
 func DefaultProcessorConfig() ProcessorConfig {
 	return ProcessorConfig{
-		ConsumerConfig: DefaultConsumerConfig(),
-		BatchSize:      100,
-		FlushInterval:  5 * time.Second,
-		RetryAttempts:  3,
-		RetryDelay:     1 * time.Second,
-		EnableMetrics:  true,
+		ConsumerConfig:      DefaultConsumerConfig(),
+		LogProcessingConfig: DefaultLogProcessingConfig(),
 	}
 }

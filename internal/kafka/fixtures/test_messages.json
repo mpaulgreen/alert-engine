@@ -1,0 +1,363 @@
+{
+  "valid_messages": [
+    {
+      "topic": "application-logs",
+      "partition": 0,
+      "offset": 100,
+      "key": "user-service-001",
+      "value": {
+        "timestamp": "2024-01-15T10:30:45.123Z",
+        "level": "ERROR",
+        "message": "User authentication failed - invalid token",
+        "kubernetes": {
+          "namespace": "production",
+          "pod": "user-service-7b6f9c8d4-xyz12",
+          "container": "user-service",
+          "labels": {
+            "app": "user-service",
+            "version": "1.2.3",
+            "environment": "production"
+          }
+        },
+        "host": "worker-node-01"
+      }
+    },
+    {
+      "topic": "application-logs",
+      "partition": 1,
+      "offset": 200,
+      "key": "payment-service-001",
+      "value": {
+        "timestamp": "2024-01-15T10:31:00.456Z",
+        "level": "WARN",
+        "message": "Payment processing slow - response time > 2s",
+        "kubernetes": {
+          "namespace": "production",
+          "pod": "payment-service-5c6b7d8e9-abc34",
+          "container": "payment-service",
+          "labels": {
+            "app": "payment-service",
+            "version": "2.1.0",
+            "environment": "production"
+          }
+        },
+        "host": "worker-node-02"
+      }
+    },
+    {
+      "topic": "application-logs",
+      "partition": 0,
+      "offset": 300,
+      "key": "database-service-001",
+      "value": {
+        "timestamp": "2024-01-15T10:32:15.789Z",
+        "level": "ERROR",
+        "message": "Database connection timeout after 30 seconds",
+        "kubernetes": {
+          "namespace": "production",
+          "pod": "database-service-1a2b3c4d5-efg67",
+          "container": "database-service",
+          "labels": {
+            "app": "database-service",
+            "version": "3.0.0",
+            "environment": "production"
+          }
+        },
+        "host": "worker-node-03"
+      }
+    },
+    {
+      "topic": "application-logs",
+      "partition": 2,
+      "offset": 400,
+      "key": "api-gateway-001",
+      "value": {
+        "timestamp": "2024-01-15T10:33:30.012Z",
+        "level": "INFO",
+        "message": "API request processed successfully",
+        "kubernetes": {
+          "namespace": "staging",
+          "pod": "api-gateway-9x8y7z6w5-uvt43",
+          "container": "api-gateway",
+          "labels": {
+            "app": "api-gateway",
+            "version": "1.5.0",
+            "environment": "staging"
+          }
+        },
+        "host": "worker-node-04"
+      }
+    },
+    {
+      "topic": "application-logs",
+      "partition": 0,
+      "offset": 500,
+      "key": "monitoring-service-001",
+      "value": {
+        "timestamp": "2024-01-15T10:34:45.345Z",
+        "level": "DEBUG",
+        "message": "Health check completed - all services healthy",
+        "kubernetes": {
+          "namespace": "monitoring",
+          "pod": "monitoring-service-4d5e6f7g8-hij91",
+          "container": "monitoring-service",
+          "labels": {
+            "app": "monitoring-service",
+            "version": "1.0.0",
+            "environment": "production"
+          }
+        },
+        "host": "worker-node-05"
+      }
+    }
+  ],
+  "invalid_messages": [
+    {
+      "topic": "application-logs",
+      "partition": 0,
+      "offset": 600,
+      "key": "invalid-json-001",
+      "value": "{ invalid json structure"
+    },
+    {
+      "topic": "application-logs",
+      "partition": 1,
+      "offset": 700,
+      "key": "missing-fields-001",
+      "value": {
+        "timestamp": "2024-01-15T10:35:00.123Z",
+        "level": "ERROR"
+      }
+    },
+    {
+      "topic": "application-logs",
+      "partition": 0,
+      "offset": 800,
+      "key": "empty-message-001",
+      "value": {
+        "timestamp": "2024-01-15T10:36:00.789Z",
+        "level": "ERROR",
+        "message": "",
+        "kubernetes": {
+          "namespace": "production",
+          "pod": "test-pod",
+          "container": "test-container",
+          "labels": {
+            "app": "test-service"
+          }
+        }
+      }
+    },
+    {
+      "topic": "application-logs",
+      "partition": 2,
+      "offset": 900,
+      "key": "missing-namespace-001",
+      "value": {
+        "timestamp": "2024-01-15T10:37:00.456Z",
+        "level": "ERROR",
+        "message": "Test error message",
+        "kubernetes": {
+          "pod": "test-pod",
+          "container": "test-container",
+          "labels": {
+            "app": "test-service"
+          }
+        }
+      }
+    }
+  ],
+  "batch_messages": [
+    {
+      "topic": "batch-logs",
+      "partition": 0,
+      "offset": 1000,
+      "key": "batch-001",
+      "value": {
+        "timestamp": "2024-01-15T11:00:00.000Z",
+        "level": "INFO",
+        "message": "Batch message 1",
+        "kubernetes": {
+          "namespace": "batch-processing",
+          "pod": "batch-service-1",
+          "container": "batch-container",
+          "labels": {
+            "app": "batch-service",
+            "batch-id": "batch-001"
+          }
+        }
+      }
+    },
+    {
+      "topic": "batch-logs",
+      "partition": 0,
+      "offset": 1001,
+      "key": "batch-002",
+      "value": {
+        "timestamp": "2024-01-15T11:00:01.000Z",
+        "level": "INFO",
+        "message": "Batch message 2",
+        "kubernetes": {
+          "namespace": "batch-processing",
+          "pod": "batch-service-2",
+          "container": "batch-container",
+          "labels": {
+            "app": "batch-service",
+            "batch-id": "batch-001"
+          }
+        }
+      }
+    },
+    {
+      "topic": "batch-logs",
+      "partition": 0,
+      "offset": 1002,
+      "key": "batch-003",
+      "value": {
+        "timestamp": "2024-01-15T11:00:02.000Z",
+        "level": "WARN",
+        "message": "Batch message 3 with warning",
+        "kubernetes": {
+          "namespace": "batch-processing",
+          "pod": "batch-service-3",
+          "container": "batch-container",
+          "labels": {
+            "app": "batch-service",
+            "batch-id": "batch-001"
+          }
+        }
+      }
+    },
+    {
+      "topic": "batch-logs",
+      "partition": 1,
+      "offset": 1003,
+      "key": "batch-004",
+      "value": {
+        "timestamp": "2024-01-15T11:00:03.000Z",
+        "level": "ERROR",
+        "message": "Batch message 4 with error",
+        "kubernetes": {
+          "namespace": "batch-processing",
+          "pod": "batch-service-4",
+          "container": "batch-container",
+          "labels": {
+            "app": "batch-service",
+            "batch-id": "batch-001"
+          }
+        }
+      }
+    },
+    {
+      "topic": "batch-logs",
+      "partition": 1,
+      "offset": 1004,
+      "key": "batch-005",
+      "value": {
+        "timestamp": "2024-01-15T11:00:04.000Z",
+        "level": "INFO",
+        "message": "Batch message 5 final",
+        "kubernetes": {
+          "namespace": "batch-processing",
+          "pod": "batch-service-5",
+          "container": "batch-container",
+          "labels": {
+            "app": "batch-service",
+            "batch-id": "batch-001"
+          }
+        }
+      }
+    }
+  ],
+  "high_volume_messages": [
+    {
+      "topic": "high-volume-logs",
+      "partition": 0,
+      "offset": 2000,
+      "key": "volume-test-001",
+      "value": {
+        "timestamp": "2024-01-15T12:00:00.000Z",
+        "level": "INFO",
+        "message": "High volume test message 1",
+        "kubernetes": {
+          "namespace": "performance",
+          "pod": "volume-test-1",
+          "container": "volume-container",
+          "labels": {
+            "app": "volume-service",
+            "test": "performance"
+          }
+        }
+      }
+    }
+  ],
+  "configurations": {
+    "default_consumer_config": {
+      "brokers": ["localhost:9092"],
+      "topic": "application-logs",
+      "group_id": "test-consumer-group",
+      "min_bytes": 10240,
+      "max_bytes": 10485760,
+      "max_wait": "1s",
+      "start_offset": -1
+    },
+    "test_processor_config": {
+      "consumer_config": {
+        "brokers": ["localhost:9092"],
+        "topic": "test-logs",
+        "group_id": "test-processor-group",
+        "min_bytes": 1024,
+        "max_bytes": 1048576,
+        "max_wait": "500ms",
+        "start_offset": -2
+      },
+      "batch_size": 50,
+      "flush_interval": "2s",
+      "retry_attempts": 2,
+      "retry_delay": "500ms",
+      "enable_metrics": true
+    },
+    "batch_processor_config": {
+      "consumer_config": {
+        "brokers": ["broker1:9092", "broker2:9092"],
+        "topic": "batch-logs",
+        "group_id": "batch-processor-group",
+        "min_bytes": 5120,
+        "max_bytes": 5242880,
+        "max_wait": "2s",
+        "start_offset": 0
+      },
+      "batch_size": 100,
+      "flush_interval": "5s",
+      "retry_attempts": 3,
+      "retry_delay": "1s",
+      "enable_metrics": true
+    }
+  },
+  "error_scenarios": [
+    {
+      "name": "network_timeout",
+      "description": "Simulates network timeout during message read",
+      "error_type": "timeout",
+      "error_message": "context deadline exceeded"
+    },
+    {
+      "name": "broker_unavailable",
+      "description": "Simulates broker unavailability",
+      "error_type": "connection",
+      "error_message": "kafka: client has run out of available brokers"
+    },
+    {
+      "name": "partition_error",
+      "description": "Simulates partition error",
+      "error_type": "partition",
+      "error_message": "kafka: error reading from partition"
+    },
+    {
+      "name": "deserialization_error",
+      "description": "Simulates JSON deserialization error",
+      "error_type": "parsing",
+      "error_message": "invalid character"
+    }
+  ]
+} 

@@ -1,18 +1,176 @@
-# Internal/Notifications Package
+# Notifications Package
 
-The `internal/notifications` package is a critical component of the alert-engine that handles sending notifications when alerts are triggered. It provides an extensible notification system with support for different notification channels (currently Slack, with interfaces for future channels like email, webhooks, etc.).
+The notifications package provides interfaces and implementations for sending alert notifications through various channels (currently Slack). It includes comprehensive message formatting, configuration management, and robust testing infrastructure.
+
+## Overview
+
+This package consists of:
+- **Core interfaces** (`interfaces.go`) - Define notification contracts and data structures
+- **Slack implementation** (`slack.go`) - Full-featured Slack notifier with templating support
+- **Test infrastructure** - Unit tests, integration tests, and mocks for thorough testing
+- **Fixtures and mocks** - Test data and mock HTTP clients/servers
+
+## Key Features
+
+### Slack Notifier
+- **Rich message formatting** with attachments, fields, and colors
+- **Configurable templates** for alert messages and fields
+- **Severity-based styling** with emojis and colors
+- **Enable/disable functionality** with state management
+- **Comprehensive validation** of webhook URLs and configuration
+- **Multiple message types**: simple text, rich attachments, custom messages
+- **Alert summarization** for multiple alerts
+
+### Configuration Management
+- **Global notification settings** with severity mappings
+- **Per-notifier configuration** with full customization
+- **Default configurations** for quick setup
+- **Validation and error handling**
+
+## Quick Start
+
+### Basic Slack Notifier Setup
+
+```go
+package main
+
+import (
+    "fmt"
+    "time"
+    
+    "github.com/log-monitoring/alert-engine/internal/notifications"
+    "github.com/log-monitoring/alert-engine/pkg/models"
+)
+
+func main() {
+    // Create a Slack notifier
+    webhookURL := "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    notifier := notifications.NewSlackNotifier(webhookURL)
+    
+    // Create an alert
+    alert := models.Alert{
+        ID:        "alert-001",
+        RuleName:  "High Error Rate",
+        Severity:  "critical",
+        Count:     15,
+        Timestamp: time.Now(),
+        LogEntry: models.LogEntry{
+            Level:   "ERROR",
+            Message: "Database connection failed",
+            Kubernetes: models.KubernetesInfo{
+                Namespace: "production",
+                Pod:       "api-server-abc123",
+                Container: "api-server",
+            },
+        },
+    }
+    
+    // Send the alert
+    if err := notifier.SendAlert(alert); err != nil {
+        fmt.Printf("Failed to send alert: %v\n", err)
+    }
+}
+```
+
+### Custom Configuration
+
+```go
+// Create custom Slack configuration
+config := notifications.SlackConfig{
+    WebhookURL:     "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK",
+    Channel:        "#critical-alerts",
+    Username:       "Alert Bot",
+    IconEmoji:      ":fire:",
+    Timeout:        60 * time.Second,
+    Enabled:        true,
+    Templates:      notifications.DefaultTemplateConfig(),
+    SeverityEmojis: notifications.DefaultSeverityEmojis(),
+    SeverityColors: notifications.DefaultSeverityColors(),
+}
+
+notifier := notifications.NewSlackNotifierWithConfig(config)
+```
+
+## Testing
+
+The package includes comprehensive test coverage (85.5%) with unit tests, integration tests, and mocks.
+
+### Running Tests
+
+#### Unit Tests Only
+```bash
+# Run unit tests with coverage
+go test ./internal/notifications/... -v -tags=unit -coverprofile=coverage.out
+
+# View coverage report
+go tool cover -html=coverage.out
+```
+
+#### Integration Tests Only
+```bash
+# Run integration tests
+go test ./internal/notifications/... -v -tags=integration
+```
+
+#### All Tests
+```bash
+# Run all tests with coverage
+go test ./internal/notifications/... -v -tags=unit,integration -coverprofile=coverage.out
+
+# Generate coverage report
+go tool cover -func=coverage.out
+```
+
+#### Test Coverage Summary
+Current test coverage: **85.5%**
+
+Coverage includes:
+- ✅ Core notification interfaces and data structures
+- ✅ Slack notifier functionality (send alerts, configuration, validation)
+- ✅ Message formatting and templating
+- ✅ Enable/disable state management
+- ✅ Error handling and edge cases
+- ✅ Global configuration management
+- ✅ Alert summarization
+- ✅ Integration tests with mock Slack server
+
+### Mock Testing
+
+The package includes sophisticated mocks for testing:
+
+```go
+// Mock Slack server for integration tests
+mockServer := mocks.NewMockSlackServer()
+defer mockServer.Close()
+
+// Configure mock responses
+mockServer.SetupSlackScenario("success")
+
+// Create notifier with mock server
+notifier := notifications.NewSlackNotifier(mockServer.GetWebhookURL())
+```
 
 ## Package Structure
 
-The package consists of two main files:
+```
+internal/notifications/
+├── interfaces.go           # Core interfaces and data structures
+├── slack.go               # Slack notifier implementation
+├── interfaces_test.go     # Unit tests for interfaces
+├── slack_test.go          # Unit tests for Slack notifier
+├── integration_test.go    # Integration tests
+├── mocks/
+│   ├── mock_http_client.go   # Mock HTTP client for unit tests
+│   └── mock_http_server.go   # Mock HTTP server for integration tests
+└── fixtures/
+    └── test_alerts.json      # Test data for alerts
+```
 
-1. **`interfaces.go`** - Defines interfaces and data structures for the notification system
-2. **`slack.go`** - Implements Slack notifications using the `Notifier` interface
+## API Reference
 
-## Core Components and Examples
+### Core Interfaces
 
-### 1. The `Notifier` Interface
-
+#### Notifier Interface
 ```go
 type Notifier interface {
     SendAlert(alert models.Alert) error
@@ -23,385 +181,143 @@ type Notifier interface {
 }
 ```
 
-**Example Usage:**
+### Slack Notifier
+
+#### Creating Notifiers
+- `NewSlackNotifier(webhookURL string) *SlackNotifier`
+- `NewSlackNotifierWithConfig(config SlackConfig) *SlackNotifier`
+
+#### Configuration Methods
+- `GetConfig() SlackConfig`
+- `UpdateConfig(config SlackConfig)`
+- `SetChannel(channel string)`
+- `SetUsername(username string)`
+- `SetIconEmoji(iconEmoji string)`
+- `SetWebhookURL(webhookURL string)`
+- `ValidateConfig() error`
+
+#### Messaging Methods
+- `SendAlert(alert models.Alert) error`
+- `SendSimpleMessage(text string) error`
+- `SendRichMessage(text string, attachments []SlackAttachment) error`
+- `SendCustomMessage(message SlackMessage) error`
+- `CreateAlertSummary(alerts []models.Alert) SlackMessage`
+- `TestConnection() error`
+
+#### State Management
+- `IsEnabled() bool`
+- `SetEnabled(enabled bool)`
+- `GetName() string`
+
+### Configuration Types
+
+#### SlackConfig
 ```go
-// Create a Slack notifier
-slackNotifier := NewSlackNotifier("https://hooks.slack.com/services/YOUR/WEBHOOK/URL")
-
-// Send an alert
-alert := models.Alert{
-    ID: "alert-001",
-    RuleName: "High Error Rate",
-    Severity: "critical",
-    LogEntry: models.LogEntry{
-        Level: "ERROR",
-        Message: "Database connection failed",
-        Kubernetes: models.KubernetesInfo{
-            Namespace: "production",
-            Pod: "api-server-abc123",
-            Labels: map[string]string{"app": "api-server"},
-        },
-    },
-    Count: 15,
-}
-
-err := slackNotifier.SendAlert(alert)
-```
-
-### 2. SlackNotifier Implementation
-
-The `SlackNotifier` struct implements the `Notifier` interface and provides rich Slack integration.
-
-**Key Functions with Examples:**
-
-#### `NewSlackNotifier(webhookURL string)`
-Creates a new Slack notifier with default settings.
-
-```go
-notifier := NewSlackNotifier("https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX")
-// Default settings: channel=#alerts, username="Alert Engine", icon=:warning:
-```
-
-#### `SendAlert(alert models.Alert)`
-Sends a formatted alert message to Slack with rich attachments.
-
-**Example Output in Slack:**
-```
-🔴 Alert triggered for rule: *High Error Rate*
-
-┌─────────────────────────────────────────────────────────────────┐
-│ 🔴 High Error Rate                                              │
-│ ```                                                             │
-│ Database connection failed                                      │
-│ ```                                                             │
-│ Severity: CRITICAL          │ Namespace: production            │
-│ Service: api-server         │ Pod: api-server-abc123           │
-│ Log Level: ERROR            │ Count: 15                        │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### `TestConnection()`
-Tests if the Slack webhook is working correctly.
-
-```go
-err := notifier.TestConnection()
-if err != nil {
-    log.Printf("Slack connection failed: %v", err)
+type SlackConfig struct {
+    WebhookURL     string
+    Channel        string
+    Username       string
+    IconEmoji      string
+    Timeout        time.Duration
+    Enabled        bool
+    Templates      TemplateConfig
+    SeverityEmojis map[string]string
+    SeverityColors map[string]string
 }
 ```
 
-**Example Test Message in Slack:**
-```
-Test message from Alert Engine
+#### Global Configuration
+- `SetGlobalNotificationConfig(config NotificationGlobalConfig)`
+- `GetGlobalNotificationConfig() NotificationGlobalConfig`
+- `DefaultGlobalNotificationConfig() NotificationGlobalConfig`
 
-┌─────────────────────────────────────────────────────────────────┐
-│ Connection Test                                                 │
-│ If you can see this message, the Slack integration is working  │
-│ correctly!                                                      │
-│ Status: ✅ Connected        │ Timestamp: 2024-01-15T10:30:00Z   │
-└─────────────────────────────────────────────────────────────────┘
-```
+## Error Handling
 
-#### `SendSimpleMessage(text string)`
-Sends a simple text message without rich formatting.
+The package provides comprehensive error handling for:
+- Invalid webhook URLs
+- Network timeouts and failures
+- Slack API errors (rate limiting, forbidden, etc.)
+- Configuration validation errors
+- Template parsing errors
 
+Example error handling:
 ```go
-notifier.SendSimpleMessage("System maintenance starting in 5 minutes")
-```
-
-#### `CreateAlertSummary(alerts []models.Alert)`
-Creates a summary of multiple alerts, grouped by severity.
-
-```go
-alerts := []models.Alert{
-    {Severity: "critical", RuleName: "DB Error"},
-    {Severity: "high", RuleName: "API Timeout"},
-    {Severity: "critical", RuleName: "Memory Usage"},
-}
-
-summary := notifier.CreateAlertSummary(alerts)
-// Results in a summary showing: 2 Critical, 1 High alerts
-```
-
-### 3. Configuration Management
-
-The package provides comprehensive configuration management:
-
-#### `NotificationConfig`
-```go
-config := DefaultNotificationConfig()
-// Results in:
-// {
-//     Enabled: true,
-//     MaxRetries: 3,
-//     RetryDelay: 5s,
-//     Timeout: 30s,
-//     RateLimitPerMin: 60,
-//     BatchSize: 10,
-//     BatchDelay: 1s,
-//     EnableDeduplication: true,
-//     DeduplicationWindow: 5m,
-// }
-```
-
-#### `NotificationChannel`
-```go
-channel := NotificationChannel{
-    ID: "slack-prod",
-    Name: "Production Slack",
-    Type: "slack",
-    Config: map[string]string{
-        "webhook_url": "https://hooks.slack.com/...",
-        "channel": "#alerts",
-        "username": "Alert Engine",
-    },
-    Enabled: true,
+if err := notifier.SendAlert(alert); err != nil {
+    switch {
+    case strings.Contains(err.Error(), "disabled"):
+        log.Warn("Notifier is disabled")
+    case strings.Contains(err.Error(), "webhook URL"):
+        log.Error("Invalid webhook configuration")
+    case strings.Contains(err.Error(), "timeout"):
+        log.Error("Network timeout")
+    default:
+        log.Error("Unexpected error: %v", err)
+    }
 }
 ```
 
-### 4. Utility Functions
+## Configuration Examples
 
-#### `GetSeverityEmoji(severity string)` and `GetSeverityColor(severity string)`
+### Custom Severity Styling
 ```go
-emoji := GetSeverityEmoji("critical")  // Returns "🔴"
-color := GetSeverityColor("high")      // Returns "#ff8000"
+customEmojis := map[string]string{
+    "critical": "🔥",
+    "high":     "⚠️",
+    "medium":   "ℹ️",
+    "low":      "✅",
+}
 
-// Mapping:
-// critical -> 🔴 (#ff0000)
-// high     -> 🟠 (#ff8000)
-// medium   -> 🟡 (#ffff00)
-// low      -> 🟢 (#00ff00)
-// default  -> ⚪ (#808080)
+customColors := map[string]string{
+    "critical": "#FF0000",
+    "high":     "#FFA500",
+    "medium":   "#FFFF00",
+    "low":      "#00FF00",
+}
+
+config := notifier.GetConfig()
+config.SeverityEmojis = customEmojis
+config.SeverityColors = customColors
+notifier.UpdateConfig(config)
 ```
 
-## How It Fits Into the Overall Alert-Engine
-
-### System Architecture Flow
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Kafka Logs    │───▶│ Alerting Engine │───▶│ Notifications   │
-│                 │    │                 │    │                 │
-│ • Log Ingestion │    │ • Rule Matching │    │ • Slack         │
-│ • Processing    │    │ • Threshold     │    │ • Email (Future)│
-│ • Filtering     │    │   Checking      │    │ • Webhooks      │
-└─────────────────┘    │ • Alert Creation│    │ • SMS (Future)  │
-                       └─────────────────┘    └─────────────────┘
-```
-
-### Integration Points
-
-1. **Alert Engine Integration**
-   ```go
-   // In internal/alerting/engine.go
-   func (e *Engine) EvaluateLog(logEntry models.LogEntry) {
-       // ... rule matching logic ...
-       
-       if e.shouldTriggerAlert(rule, count) {
-           alert := models.Alert{
-               ID: fmt.Sprintf("%s-%d", rule.ID, time.Now().Unix()),
-               RuleID: rule.ID,
-               RuleName: rule.Name,
-               LogEntry: logEntry,
-               Severity: rule.Actions.Severity,
-               // ... other fields ...
-           }
-           
-           // Send notification using the Notifier interface
-           if err := e.notifier.SendAlert(alert); err != nil {
-               log.Printf("Error sending alert: %v", err)
-           }
-       }
-   }
-   ```
-
-2. **Configuration Integration**
-   ```go
-   // The engine is initialized with a notifier
-   slackNotifier := notifications.NewSlackNotifier(webhookURL)
-   engine := alerting.NewEngine(stateStore, slackNotifier)
-   ```
-
-3. **Data Flow Example**
-   ```go
-   // 1. Log entry comes from Kafka
-   logEntry := models.LogEntry{
-       Level: "ERROR",
-       Message: "Payment processing failed",
-       Kubernetes: models.KubernetesInfo{
-           Namespace: "ecommerce",
-           Pod: "payment-service-xyz",
-           Labels: map[string]string{"app": "payment-service"},
-       },
-   }
-   
-   // 2. Engine evaluates against rules
-   engine.EvaluateLog(logEntry)
-   
-   // 3. If rule matches and threshold exceeded, alert is created
-   // 4. Notification is sent via SlackNotifier
-   ```
-
-## Advanced Features
-
-### 1. Notification Templates
+### Message Templates
 ```go
-type NotificationTemplate struct {
-    ID: "critical-alert",
-    Name: "Critical Alert Template",
-    Subject: "🔴 Critical Alert: {{.RuleName}}",
-    Body: "Service {{.Service}} in {{.Namespace}} has triggered a critical alert",
-    Variables: map[string]string{
-        "RuleName": "{{.RuleName}}",
-        "Service": "{{.LogEntry.Kubernetes.Labels.app}}",
-        "Namespace": "{{.LogEntry.Kubernetes.Namespace}}",
+customTemplate := notifications.TemplateConfig{
+    AlertMessage: "🚨 Alert: {{.RuleName}} - {{.Severity}} severity",
+    SlackAlertTitle: "{{.RuleName}} ({{.Count}} occurrences)",
+    SlackAlertFields: []notifications.SlackTemplateField{
+        {Title: "Severity", Value: "{{.Severity}}", Short: true},
+        {Title: "Count", Value: "{{.Count}}", Short: true},
+        {Title: "Namespace", Value: "{{.LogEntry.Kubernetes.Namespace}}", Short: true},
+        {Title: "Pod", Value: "{{.LogEntry.Kubernetes.Pod}}", Short: true},
     },
 }
+
+config := notifier.GetConfig()
+config.Templates = customTemplate
+notifier.UpdateConfig(config)
 ```
 
-### 2. Notification History and Statistics
-```go
-type NotificationStats struct {
-    TotalNotifications: 1250,
-    SuccessfulSent: 1200,
-    FailedSent: 50,
-    SuccessRate: 96.0,
-    ByChannel: map[string]int{
-        "slack": 1000,
-        "email": 200,
-        "webhook": 50,
-    },
-    BySeverity: map[string]int{
-        "critical": 100,
-        "high": 300,
-        "medium": 500,
-        "low": 350,
-    },
-}
-```
+## Best Practices
 
-### 3. Rate Limiting and Deduplication
-The package includes interfaces for:
-- Rate limiting notifications to prevent spam
-- Deduplicating identical alerts within a time window
-- Queuing notifications for reliable delivery
+1. **Always validate configuration** before using notifiers
+2. **Handle errors appropriately** based on error type
+3. **Use mock servers** for integration testing
+4. **Test with different severity levels** to verify styling
+5. **Monitor webhook rate limits** in production
+6. **Use meaningful channel names** for different alert types
+7. **Keep templates simple** to avoid parsing errors
+8. **Test alert summarization** for bulk notifications
 
-## Future Extensibility
+## Production Considerations
 
-The package is designed to easily add new notification channels:
+- **Rate Limiting**: Slack webhooks have rate limits; implement appropriate backoff
+- **Error Monitoring**: Monitor notification failures in production
+- **Configuration Management**: Store webhook URLs securely
+- **Testing**: Regularly test webhook connectivity
+- **Fallbacks**: Consider implementing fallback notification channels
+- **Alerting on Alerting**: Monitor the notification system itself
 
-```go
-// Example: Email notifier implementation
-type EmailNotifier struct {
-    smtpServer string
-    username   string
-    password   string
-    // ... other fields
-}
+---
 
-func (e *EmailNotifier) SendAlert(alert models.Alert) error {
-    // Implementation for email sending
-}
-
-// Example: Webhook notifier
-type WebhookNotifier struct {
-    webhookURL string
-    headers    map[string]string
-}
-
-func (w *WebhookNotifier) SendAlert(alert models.Alert) error {
-    // Implementation for webhook posting
-}
-```
-
-## Data Structures
-
-### Core Interfaces
-
-- **`Notifier`** - Main interface for all notification implementations
-- **`NotificationManager`** - Manages multiple notification channels
-- **`TemplateManager`** - Manages notification templates
-- **`RateLimiter`** - Controls notification rate limiting
-- **`NotificationDeduplicator`** - Prevents duplicate notifications
-- **`NotificationQueue`** - Queues notifications for reliable delivery
-
-### Key Data Types
-
-- **`NotificationChannel`** - Configuration for a notification channel
-- **`NotificationTemplate`** - Message template structure
-- **`NotificationResult`** - Result of a notification attempt
-- **`NotificationHistory`** - Historical tracking of notifications
-- **`NotificationStats`** - Statistical information about notifications
-- **`NotificationConfig`** - Configuration settings for notifications
-
-## Usage Examples
-
-### Basic Setup
-```go
-// Create and configure a Slack notifier
-slackNotifier := NewSlackNotifier("https://hooks.slack.com/services/YOUR/WEBHOOK/URL")
-slackNotifier.SetChannel("#critical-alerts")
-slackNotifier.SetUsername("Production Alert Bot")
-slackNotifier.SetIconEmoji(":fire:")
-
-// Test the connection
-if err := slackNotifier.TestConnection(); err != nil {
-    log.Fatal("Failed to connect to Slack:", err)
-}
-```
-
-### Sending Different Types of Notifications
-```go
-// Send an alert (rich formatting)
-alert := models.Alert{
-    RuleName: "High CPU Usage",
-    Severity: "high",
-    LogEntry: logEntry,
-    Count: 25,
-}
-slackNotifier.SendAlert(alert)
-
-// Send a simple message
-slackNotifier.SendSimpleMessage("Deployment completed successfully")
-
-// Send a custom formatted message
-customMessage := SlackMessage{
-    Text: "Custom notification",
-    Attachments: []SlackAttachment{
-        {
-            Color: "#ff0000",
-            Title: "Custom Alert",
-            Text: "This is a custom formatted alert",
-        },
-    },
-}
-slackNotifier.SendCustomMessage(customMessage)
-```
-
-### Configuration Management
-```go
-// Create custom configuration
-config := NotificationConfig{
-    Enabled: true,
-    MaxRetries: 5,
-    RetryDelay: 10 * time.Second,
-    Timeout: 60 * time.Second,
-    RateLimitPerMin: 30,
-    EnableDeduplication: true,
-    DeduplicationWindow: 10 * time.Minute,
-}
-
-slackNotifier.SetConfig(config)
-```
-
-## Summary
-
-The `internal/notifications` package serves as the **output layer** of the alert-engine, transforming structured alert data into user-friendly notifications across various channels. It provides:
-
-- **Abstraction**: Clean interfaces for different notification types
-- **Rich Formatting**: Context-aware message formatting with severity indicators
-- **Reliability**: Error handling, retries, and status tracking
-- **Extensibility**: Easy addition of new notification channels
-- **Configuration**: Flexible configuration management for different environments
-
-This design allows the alert-engine to focus on log processing and rule evaluation while delegating the complexity of notification delivery to this specialized package. 
+This package provides a robust foundation for notification delivery with comprehensive testing and flexible configuration options. 

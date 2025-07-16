@@ -17,7 +17,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-COMPOSE_FILE="docker-compose.test.yml"
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.test.yml"
 CONTAINER_ENGINE="docker"
 PROJECT_NAME="alert-engine-test"
 SKIP_HEALTH_CHECK="${SKIP_HEALTH_CHECK:-false}"
@@ -85,7 +86,7 @@ start_containers() {
         if ! check_service_health; then
             print_status $RED "❌ Health check failed!"
             print_status $YELLOW "💡 You can bypass health checks by setting: SKIP_HEALTH_CHECK=true"
-            print_status $YELLOW "💡 Or run tests directly with: go test -tags=integration -v ./internal/api/tests/..."
+            print_status $YELLOW "💡 Or run tests directly with: go test -tags=integration -v ./internal/api"
             return 1
         fi
     fi
@@ -181,7 +182,7 @@ run_integration_tests() {
     export REDIS_PASSWORD="testpass"
     
     # Run integration tests with build tag and proper timeouts
-    if go test -tags=integration -v ./internal/kafka/tests/... -timeout=5m; then
+    if go test -tags=integration -v ./internal/kafka -timeout=5m; then
         print_status $GREEN "✅ Kafka integration tests PASSED"
     else
         print_status $RED "❌ Kafka integration tests FAILED"
@@ -189,7 +190,7 @@ run_integration_tests() {
     fi
     
     # Run storage integration tests using testcontainers (no external Redis needed)
-    if go test -tags=integration -v ./internal/storage/tests/... -timeout=5m; then
+    if go test -tags=integration -v ./internal/storage -timeout=5m; then
         print_status $GREEN "✅ Storage integration tests PASSED"
     else
         print_status $RED "❌ Storage integration tests FAILED"
@@ -197,7 +198,7 @@ run_integration_tests() {
     fi
     
     # Run notifications integration tests using mock HTTP server (no external dependencies)
-    if go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m; then
+    if go test -tags=integration -v ./internal/notifications -timeout=3m; then
         print_status $GREEN "✅ Notifications integration tests PASSED"
     else
         print_status $RED "❌ Notifications integration tests FAILED"
@@ -205,7 +206,7 @@ run_integration_tests() {
     fi
     
     # Run API integration tests using HTTP server (no external dependencies)
-    if go test -tags=integration -v ./internal/api/tests/... -timeout=5m; then
+    if go test -tags=integration -v ./internal/api -timeout=5m; then
         print_status $GREEN "✅ API integration tests PASSED"
     else
         print_status $RED "❌ API integration tests FAILED"
@@ -228,15 +229,15 @@ run_tests_in_container() {
             export USE_EXISTING_SERVICES=true
             
             # Run notifications integration tests (using mock HTTP server)
-            if [ -d './internal/notifications/tests' ]; then
+            if [ -d './internal/notifications' ]; then
                 echo 'Running Notifications integration tests...'
-                go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m
+                go test -tags=integration -v ./internal/notifications -timeout=3m
             fi
             
             # Run API integration tests (using HTTP server)
-            if [ -d './internal/api/tests' ]; then
+            if [ -d './internal/api' ]; then
                 echo 'Running API integration tests...'
-                go test -tags=integration -v ./internal/api/tests/... -timeout=5m
+                go test -tags=integration -v ./internal/api -timeout=5m
             fi
             
             # Note: Kafka and Storage tests are skipped in container mode
@@ -262,28 +263,28 @@ run_performance_tests() {
     export TESTCONTAINERS_RYUK_DISABLED=true
     
     # Run Kafka performance tests
-    if go test -tags=integration -bench=. -benchmem ./internal/kafka/tests/... -timeout=10m; then
+    if go test -tags=integration -bench=. -benchmem ./internal/kafka -timeout=10m; then
         print_status $GREEN "✅ Kafka performance tests completed"
     else
         print_status $YELLOW "⚠️  Kafka performance tests not found or skipped"
     fi
     
     # Run Storage performance tests
-    if go test -tags=integration -v ./internal/storage/tests/... -run TestRedisStore_Integration_Performance -timeout=10m; then
+    if go test -tags=integration -v ./internal/storage -run TestRedisStore_Integration_Performance -timeout=10m; then
         print_status $GREEN "✅ Storage performance tests completed"
     else
         print_status $YELLOW "⚠️  Storage performance tests not found or skipped"
     fi
     
     # Run Notifications performance tests
-    if go test -tags=integration -bench=. -benchmem ./internal/notifications/tests/... -timeout=5m; then
+    if go test -tags=integration -bench=. -benchmem ./internal/notifications -timeout=5m; then
         print_status $GREEN "✅ Notifications performance tests completed"
     else
         print_status $YELLOW "⚠️  Notifications performance tests not found or skipped"
     fi
     
     # Run API performance tests
-    if go test -tags=integration -bench=. -benchmem ./internal/api/tests/... -timeout=5m; then
+    if go test -tags=integration -bench=. -benchmem ./internal/api -timeout=5m; then
         print_status $GREEN "✅ API performance tests completed"
     else
         print_status $YELLOW "⚠️  API performance tests not found or skipped"
@@ -365,7 +366,7 @@ show_usage() {
     echo "  $0 logs               # Show service logs"
     echo ""
     echo "Environment Variables:"
-    echo "  COMPOSE_FILE         Docker compose file (default: docker-compose.test.yml)"
+    echo "  COMPOSE_FILE         Docker compose file (default: scripts/docker-compose.test.yml)"
     echo "  PROJECT_NAME         Container project name (default: alert-engine-test)"
     echo "  SKIP_HEALTH_CHECK    Skip service health checks (default: false)"
     echo ""
@@ -373,10 +374,10 @@ show_usage() {
     echo "  If Kafka health check fails:"
     echo "    SKIP_HEALTH_CHECK=true $0"
     echo "  Or run tests directly with proper timeouts:"
-    echo "    go test -tags=integration -v ./internal/api/tests/... -timeout=5m"
-    echo "    go test -tags=integration -v ./internal/notifications/tests/... -timeout=3m"
-    echo "    go test -tags=integration -v ./internal/storage/tests/... -timeout=5m"
-    echo "    go test -tags=integration -v ./internal/kafka/tests/... -timeout=5m"
+    echo "    go test -tags=integration -v ./internal/api -timeout=5m"
+    echo "    go test -tags=integration -v ./internal/notifications -timeout=3m"
+    echo "    go test -tags=integration -v ./internal/storage -timeout=5m"
+    echo "    go test -tags=integration -v ./internal/kafka -timeout=5m"
     echo ""
 }
 

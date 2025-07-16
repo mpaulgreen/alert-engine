@@ -1,13 +1,20 @@
 package alerting
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/log-monitoring/alert-engine/pkg/models"
 )
+
+// AlertEngineConfig holds configuration for the alert engine
+type AlertEngineConfig struct {
+	MessageTemplate string `json:"message_template"`
+}
 
 // StateStore interface for persisting alert state
 type StateStore interface {
@@ -19,6 +26,7 @@ type StateStore interface {
 	GetCounter(ruleID string, window time.Duration) (int64, error)
 	SetAlertStatus(ruleID string, status models.AlertStatus) error
 	GetAlertStatus(ruleID string) (*models.AlertStatus, error)
+	SaveAlert(alert models.Alert) error
 }
 
 // Notifier interface for sending notifications
@@ -29,11 +37,13 @@ type Notifier interface {
 
 // Engine is the main alert evaluation engine
 type Engine struct {
-	stateStore  StateStore
-	notifier    Notifier
-	rules       []models.AlertRule
-	windowStore map[string]*TimeWindow
-	stopChan    chan struct{}
+	stateStore      StateStore
+	notifier        Notifier
+	rules           []models.AlertRule
+	windowStore     map[string]*TimeWindow
+	stopChan        chan struct{}
+	config          AlertEngineConfig
+	messageTemplate *template.Template
 }
 
 // TimeWindow represents a sliding time window for counting events
@@ -47,12 +57,21 @@ type TimeWindow struct {
 
 // NewEngine creates a new alert engine
 func NewEngine(stateStore StateStore, notifier Notifier) *Engine {
+	return NewEngineWithConfig(stateStore, notifier, DefaultAlertEngineConfig())
+}
+
+// NewEngineWithConfig creates a new alert engine with configuration
+func NewEngineWithConfig(stateStore StateStore, notifier Notifier, config AlertEngineConfig) *Engine {
 	engine := &Engine{
 		stateStore:  stateStore,
 		notifier:    notifier,
 		windowStore: make(map[string]*TimeWindow),
 		stopChan:    make(chan struct{}),
+		config:      config,
 	}
+
+	// Compile message template
+	engine.compileMessageTemplate()
 
 	// Load existing rules
 	if err := engine.loadRules(); err != nil {
@@ -63,6 +82,17 @@ func NewEngine(stateStore StateStore, notifier Notifier) *Engine {
 	go engine.cleanupRoutine()
 
 	return engine
+}
+
+// compileMessageTemplate compiles the alert message template
+func (e *Engine) compileMessageTemplate() {
+	var err error
+	e.messageTemplate, err = template.New("alert_message").Parse(e.config.MessageTemplate)
+	if err != nil {
+		log.Printf("Warning: Failed to compile message template, using default: %v", err)
+		// Fallback to default template
+		e.messageTemplate, _ = template.New("alert_message").Parse(DefaultAlertEngineConfig().MessageTemplate)
+	}
 }
 
 // EvaluateLog evaluates a log entry against all active alert rules
@@ -97,6 +127,11 @@ func (e *Engine) EvaluateLog(logEntry models.LogEntry) {
 					alert.Status = "failed"
 				} else {
 					alert.Status = "sent"
+				}
+
+				// Save the alert to storage for audit trail and API retrieval
+				if err := e.stateStore.SaveAlert(alert); err != nil {
+					log.Printf("Error saving alert for rule %s: %v", rule.ID, err)
 				}
 
 				e.recordAlertSent(rule.ID, logEntry.Timestamp)
@@ -161,23 +196,60 @@ func (e *Engine) shouldTriggerAlert(rule models.AlertRule, count int64) bool {
 	}
 }
 
-// buildAlertMessage creates a formatted alert message
+// buildAlertMessage creates a formatted alert message using the configured template
 func (e *Engine) buildAlertMessage(rule models.AlertRule, logEntry models.LogEntry, count int) string {
-	return fmt.Sprintf(
-		"🚨 Alert: %s\n"+
-			"Service: %s\n"+
-			"Namespace: %s\n"+
-			"Level: %s\n"+
-			"Count: %d in %s\n"+
-			"Message: %s",
-		rule.Name,
-		logEntry.Kubernetes.Labels["app"],
-		logEntry.GetNamespace(),
-		logEntry.Level,
-		count,
-		rule.Conditions.TimeWindow.String(),
-		logEntry.Message,
-	)
+	if e.messageTemplate == nil {
+		// Fallback to hardcoded format if template is not available
+		return fmt.Sprintf(
+			"🚨 Alert: %s\n"+
+				"Service: %s\n"+
+				"Namespace: %s\n"+
+				"Level: %s\n"+
+				"Count: %d in %s\n"+
+				"Message: %s",
+			rule.Name,
+			logEntry.Kubernetes.Labels["app"],
+			logEntry.GetNamespace(),
+			logEntry.Level,
+			count,
+			rule.Conditions.TimeWindow.String(),
+			logEntry.Message,
+		)
+	}
+
+	// Prepare template data
+	templateData := map[string]interface{}{
+		"RuleName":   rule.Name,
+		"Service":    e.getServiceName(logEntry),
+		"Namespace":  logEntry.GetNamespace(),
+		"Level":      logEntry.Level,
+		"Count":      count,
+		"TimeWindow": rule.Conditions.TimeWindow.String(),
+		"Message":    logEntry.Message,
+		"Severity":   rule.Actions.Severity,
+		"Pod":        logEntry.GetPodName(),
+	}
+
+	// Render template
+	var buf bytes.Buffer
+	if err := e.messageTemplate.Execute(&buf, templateData); err != nil {
+		log.Printf("Error rendering message template: %v", err)
+		// Fallback to basic message
+		return fmt.Sprintf("Alert: %s - %s", rule.Name, logEntry.Message)
+	}
+
+	return buf.String()
+}
+
+// getServiceName extracts service name from log entry
+func (e *Engine) getServiceName(logEntry models.LogEntry) string {
+	if appLabel, exists := logEntry.Kubernetes.Labels["app"]; exists {
+		return appLabel
+	}
+	if serviceLabel, exists := logEntry.Kubernetes.Labels["service"]; exists {
+		return serviceLabel
+	}
+	return "unknown"
 }
 
 // recordAlertSent records that an alert was sent for a rule
@@ -280,4 +352,27 @@ func (e *Engine) cleanupOldWindows() {
 // Stop stops the alert engine
 func (e *Engine) Stop() {
 	close(e.stopChan)
+}
+
+// UpdateConfig updates the engine configuration and recompiles templates
+func (e *Engine) UpdateConfig(config AlertEngineConfig) {
+	e.config = config
+	e.compileMessageTemplate()
+}
+
+// GetConfig returns the current engine configuration
+func (e *Engine) GetConfig() AlertEngineConfig {
+	return e.config
+}
+
+// DefaultAlertEngineConfig returns the default alert engine configuration
+func DefaultAlertEngineConfig() AlertEngineConfig {
+	return AlertEngineConfig{
+		MessageTemplate: `🚨 Alert: {{.RuleName}}
+Service: {{.Service}}
+Namespace: {{.Namespace}}
+Level: {{.Level}}
+Count: {{.Count}} in {{.TimeWindow}}
+Message: {{.Message}}`,
+	}
 }

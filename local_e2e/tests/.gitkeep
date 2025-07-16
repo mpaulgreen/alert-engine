@@ -1,0 +1,2 @@
+# This file ensures the local_e2e directory is tracked by git
+# This directory is intended for local end-to-end testing files and scripts 

@@ -1,388 +1,506 @@
 # Kafka Package
 
-The `internal/kafka` package provides comprehensive Kafka integration for consuming log messages and processing them through the alert engine. It's designed with multiple processing patterns, robust error handling, and comprehensive monitoring capabilities.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Components](#components)
-  - [Consumer](#consumer)
-  - [Processor](#processor)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Usage Examples](#usage-examples)
-- [Error Handling](#error-handling)
-- [Monitoring & Metrics](#monitoring--metrics)
-- [Best Practices](#best-practices)
-- [API Reference](#api-reference)
+This package provides Kafka consumer functionality for processing log messages and integrating with the alert engine. It includes comprehensive unit and integration testing.
 
 ## Overview
 
-This package implements a robust Kafka consumer system that:
-- Consumes log messages from Kafka topics
-- Validates and processes log entries
-- Integrates with the alert engine for real-time alerting
-- Provides comprehensive metrics and health monitoring
-- Supports multiple processing patterns (single, batch, consumer groups)
-
-## Architecture
-
-```
-Kafka Topic → Consumer → Message Validation → Alert Engine → Metrics
-                ↓
-          Retry Logic (on failure)
-                ↓
-        Health Monitoring
-```
-
-The package is built with two main components:
-
-1. **Consumer** (`consumer.go`): Low-level Kafka message consumption
-2. **Processor** (`processor.go`): High-level processing with validation, retry logic, and metrics
+The kafka package consists of:
+- **Consumer**: Kafka message consumer with configurable settings
+- **Processor**: Log message processor with batch processing capabilities
+- **Factory**: Factory pattern for creating processors with different configurations
+- **Mocks**: Mock implementations for testing
 
 ## Components
 
-### Consumer
+### Consumer (`consumer.go`)
+Handles Kafka message consumption with the following features:
+- Configurable consumer settings (brokers, topics, group ID, etc.)
+- Health checks and statistics
+- Graceful shutdown support
+- Environment-based configuration
 
-The consumer component provides basic Kafka message consumption functionality:
+### Processor (`processor.go`)
+Processes log messages from Kafka with:
+- Single and batch processing modes
+- Metrics tracking and error rate monitoring
+- State store integration for log statistics
+- Configurable retry logic and timeouts
+- Health monitoring
 
-#### Key Types:
-- **`Consumer`**: Main Kafka consumer wrapper
-- **`ConsumerConfig`**: Configuration for Kafka connection and behavior
-- **`MessageProcessor`**: Batch processing for better performance
-- **`ConsumerGroup`**: Multiple consumers for higher throughput
+### Factory Pattern
+The ProcessorFactory provides a clean way to create processors:
+- Standard log processors
+- Batch log processors
+- Configurable processing parameters
 
-#### Features:
-- Continuous message consumption
-- JSON deserialization to `models.LogEntry`
-- Integration with alert engine
-- Graceful shutdown handling
-- Consumer group management
+## Testing
 
-### Processor
+### Unit Tests
 
-The processor component adds advanced processing capabilities:
+Run unit tests for the kafka package:
 
-#### Key Types:
-- **`LogProcessor`**: Enhanced message processing with validation
-- **`ProcessorConfig`**: Extended configuration with retry and metrics
-- **`ProcessorMetrics`**: Comprehensive processing statistics
-- **`BatchLogProcessor`**: Batch processing for high throughput
+```bash
+# Run all unit tests
+go test -tags=unit ./internal/kafka/ -v
 
-#### Features:
-- Message validation and sanitization
-- Automatic retry logic with exponential backoff
-- Comprehensive metrics collection
-- Health monitoring and circuit breaker patterns
-- Factory pattern for different processor types
+# Run unit tests with coverage
+go test -tags=unit ./internal/kafka/ -cover
 
-## Quick Start
+# Run specific test
+go test -tags=unit ./internal/kafka/ -run TestNewLogProcessor -v
+```
 
-### Basic Consumer Setup
+### Integration Tests
+
+Run integration tests with real Kafka containers:
+
+```bash
+# Run integration tests (requires Docker)
+go test -tags=integration ./internal/kafka/ -v
+
+# RECOMMENDED: Use the test script for better container management
+./scripts/run_kafka_integration_tests.sh
+
+# Run integration tests with race detection (SEQUENTIAL MODE REQUIRED)
+./scripts/run_kafka_integration_tests.sh -m race-safe -r
+
+# Alternative: Manual race detection (may have container conflicts)
+go test -tags=integration ./internal/kafka/ -race -v -p 1
+```
+
+**Important Notes for Race Detection:**
+- **Always use `-p 1` (sequential execution)** when running with `-race` flag
+- Or use the provided script with `race-safe` mode
+- Parallel execution with race detection causes container conflicts
+
+**Container Management:**
+- Tests create multiple Kafka containers (7 total across all test functions)
+- Parallel execution can cause Docker port conflicts and resource contention
+- Use sequential mode (`-p 1`) to avoid container startup/shutdown conflicts
+
+### Kafka Integration Test Script
+
+The package includes a specialized script for running integration tests with different execution modes:
+
+```bash
+# Show all available options
+./scripts/run_kafka_integration_tests.sh -h
+
+# Safe sequential execution (default, recommended)
+./scripts/run_kafka_integration_tests.sh
+
+# Parallel execution (faster but may have conflicts)
+./scripts/run_kafka_integration_tests.sh -m parallel
+
+# Race-safe mode with race detection
+./scripts/run_kafka_integration_tests.sh -m race-safe -r
+
+# Verbose output with Docker cleanup
+./scripts/run_kafka_integration_tests.sh -v -d
+```
+
+**Execution Modes:**
+- `sequential`: One test at a time, minimal resource conflicts (default)
+- `parallel`: Multiple tests simultaneously, faster but may conflict
+- `race-safe`: Sequential with optimizations for race detection
+
+### Running All Tests
+
+Use the project-wide test scripts:
+
+```bash
+# Run all unit tests across the project
+./scripts/run_unit_tests.sh
+
+# Run all integration tests with container dependencies
+./scripts/run_integration_tests.sh
+
+# Run Kafka integration tests specifically
+./scripts/run_kafka_integration_tests.sh
+```
+
+## Usage Examples
+
+### Basic Consumer
 
 ```go
 package main
 
 import (
     "context"
-    "log"
     "time"
     
     "github.com/log-monitoring/alert-engine/internal/kafka"
-    "github.com/log-monitoring/alert-engine/internal/alerting"
+    "github.com/log-monitoring/alert-engine/internal/kafka/mocks"
 )
 
 func main() {
-    // Create alert engine
-    alertEngine := alerting.NewEngine()
+    // Create consumer configuration
+    config := kafka.ConsumerConfig{
+        Brokers:  []string{"localhost:9092"},
+        Topic:    "application-logs", 
+        GroupID:  "alert-engine",
+        MinBytes: 1024,
+        MaxBytes: 1048576,
+        MaxWait:  2 * time.Second,
+    }
     
-    // Create consumer with default config
-    config := kafka.DefaultConsumerConfig()
-    config.Brokers = []string{"localhost:9092"}
-    config.Topic = "application-logs"
+    // Create alert engine (or use mock for testing)
+    alertEngine := mocks.NewMockAlertEngine()
     
+    // Create consumer
     consumer := kafka.NewConsumer(config, alertEngine)
     
-    // Start consuming
+    // Start consuming (blocks until context is cancelled)
     ctx := context.Background()
-    if err := consumer.Start(ctx); err != nil {
-        log.Fatal(err)
+    err := consumer.Start(ctx)
+    if err != nil {
+        panic(err)
     }
 }
 ```
 
-### Advanced Processor Setup
+### Log Processor with Batch Processing
 
 ```go
 package main
 
 import (
     "context"
-    "log"
+    "time"
     
     "github.com/log-monitoring/alert-engine/internal/kafka"
-    "github.com/log-monitoring/alert-engine/internal/alerting"
+    "github.com/log-monitoring/alert-engine/internal/kafka/mocks"
 )
 
 func main() {
-    // Create alert engine
-    alertEngine := alerting.NewEngine()
-    
-    // Create processor
-    brokers := []string{"localhost:9092"}
-    topic := "application-logs"
-    
-    processor := kafka.NewLogProcessor(brokers, topic, alertEngine)
-    
-    // Start processing with monitoring
-    ctx := context.Background()
-    go func() {
-        if err := processor.ProcessLogs(ctx); err != nil {
-            log.Printf("Processor error: %v", err)
-        }
-    }()
-    
-    // Monitor health
-    ticker := time.NewTicker(30 * time.Second)
-    for range ticker.C {
-        if !processor.HealthCheck() {
-            log.Println("Processor is unhealthy!")
-        }
-        
-        metrics := processor.GetMetrics()
-        log.Printf("Processed: %d, Failed: %d, Error Rate: %.2f%%",
-            metrics.MessagesProcessed,
-            metrics.MessagesFailure,
-            metrics.ErrorRate*100)
+    // Consumer configuration
+    consumerConfig := kafka.ConsumerConfig{
+        Brokers: []string{"localhost:9092"},
+        Topic:   "application-logs",
+        GroupID: "alert-engine",
+        MinBytes: 1024,
+        MaxBytes: 1048576,
+        MaxWait:  2 * time.Second,
     }
+    
+    // Log processing configuration
+    logProcessingConfig := kafka.LogProcessingConfig{
+        BatchSize:       50,
+        FlushInterval:   10 * time.Second,
+        RetryAttempts:   3,
+        RetryDelay:      1 * time.Second,
+        EnableMetrics:   true,
+        DefaultLogLevel: "INFO",
+    }
+    
+    // Create mocks
+    alertEngine := mocks.NewMockAlertEngine()
+    stateStore := mocks.NewMockStateStore()
+    
+    // Create log processor
+    processor := kafka.NewLogProcessor(consumerConfig, logProcessingConfig, alertEngine, stateStore)
+    
+    // Start processing logs
+    ctx := context.Background()
+    err := processor.ProcessLogs(ctx)
+    if err != nil {
+        panic(err)
+    }
+}
+```
+
+### Using Factory Pattern
+
+```go
+package main
+
+import (
+    "github.com/log-monitoring/alert-engine/internal/kafka"
+    "github.com/log-monitoring/alert-engine/internal/kafka/mocks"
+)
+
+func main() {
+    // Create factory with default configuration
+    config := kafka.DefaultProcessorConfig()
+    factory := kafka.NewProcessorFactory(config)
+    
+    // Create mocks
+    alertEngine := mocks.NewMockAlertEngine()
+    stateStore := mocks.NewMockStateStore()
+    
+    // Create processor using factory
+    processor, err := factory.CreateProcessor(
+        []string{"localhost:9092"},
+        "application-logs",
+        "alert-engine",
+        alertEngine,
+        stateStore,
+    )
+    if err != nil {
+        panic(err)
+    }
+    
+    // Create batch processor
+    batchProcessor, err := factory.CreateBatchProcessor(
+        []string{"localhost:9092"},
+        "application-logs",
+        "alert-engine",
+        alertEngine,
+        stateStore,
+    )
+    if err != nil {
+        panic(err)
+    }
+    
+    // Use processors...
 }
 ```
 
 ## Configuration
 
-### ConsumerConfig
+### Default Configuration
 
-```go
-type ConsumerConfig struct {
-    Brokers     []string      `json:"brokers"`       // Kafka broker addresses
-    Topic       string        `json:"topic"`         // Topic to consume from
-    GroupID     string        `json:"group_id"`      // Consumer group ID
-    MinBytes    int           `json:"min_bytes"`     // Minimum bytes to fetch
-    MaxBytes    int           `json:"max_bytes"`     // Maximum bytes to fetch
-    MaxWait     time.Duration `json:"max_wait"`      // Maximum wait time
-    StartOffset int64         `json:"start_offset"`  // Starting offset
-}
-```
-
-### ProcessorConfig
-
-```go
-type ProcessorConfig struct {
-    ConsumerConfig ConsumerConfig    `json:"consumer_config"`  // Base consumer config
-    BatchSize      int               `json:"batch_size"`       // Batch processing size
-    FlushInterval  time.Duration     `json:"flush_interval"`   // Batch flush interval
-    RetryAttempts  int               `json:"retry_attempts"`   // Max retry attempts
-    RetryDelay     time.Duration     `json:"retry_delay"`      // Base retry delay
-    EnableMetrics  bool              `json:"enable_metrics"`   // Enable metrics collection
-}
-```
-
-### Default Configurations
+The package provides sensible defaults:
 
 ```go
 // Default consumer configuration
 config := kafka.DefaultConsumerConfig()
-// Brokers: ["localhost:9092"]
+// Brokers: ["127.0.0.1:9094"]
 // Topic: "application-logs"
-// GroupID: "log-monitoring-group"
-// MinBytes: 10KB, MaxBytes: 10MB
-// MaxWait: 1 second
+// GroupID: "alert-engine-e2e-fresh-20250716"
+// MinBytes: 1024, MaxBytes: 1048576
+// MaxWait: 2 seconds
 
-// Default processor configuration
-procConfig := kafka.DefaultProcessorConfig()
-// BatchSize: 100
-// FlushInterval: 5 seconds
-// RetryAttempts: 3
-// RetryDelay: 1 second
+// Default log processing configuration  
+logConfig := kafka.DefaultLogProcessingConfig()
+// BatchSize: 50
+// FlushInterval: 10 seconds
+// RetryAttempts: 3, RetryDelay: 1 second
+// EnableMetrics: true
+// DefaultLogLevel: "INFO"
 ```
 
-## Usage Examples
+### Environment Variables
 
-### Single Consumer
+Consumer configuration can be overridden with environment variables:
 
-```go
-// Create and start a single consumer
-config := kafka.DefaultConsumerConfig()
-consumer := kafka.NewConsumer(config, alertEngine)
-consumer.Start(ctx)
+```bash
+export KAFKA_BROKERS="broker1:9092,broker2:9092"
+export KAFKA_TOPIC="custom-logs"
+export KAFKA_GROUP_ID="custom-group"
 ```
 
-### Consumer Group (Multiple Consumers)
+Then use:
 
 ```go
-// Create consumer group for higher throughput
-config := kafka.DefaultConsumerConfig()
-group := kafka.NewConsumerGroup(config, alertEngine, 3) // 3 consumers
-group.Start(ctx)
+config := kafka.DefaultConsumerConfigFromEnv()
 ```
 
-### Batch Processing
+## Monitoring and Health Checks
+
+### Processor Metrics
 
 ```go
-// Create batch processor for high-throughput scenarios
-factory := kafka.NewProcessorFactory(kafka.DefaultProcessorConfig())
-batchProcessor, _ := factory.CreateBatchProcessor(brokers, topic, alertEngine)
-batchProcessor.ProcessBatch(ctx)
-```
-
-### Custom Message Processing
-
-```go
-// Create processor with custom configuration
-config := kafka.ProcessorConfig{
-    ConsumerConfig: kafka.ConsumerConfig{
-        Brokers: []string{"broker1:9092", "broker2:9092"},
-        Topic:   "custom-logs",
-        GroupID: "custom-group",
-    },
-    BatchSize:     200,
-    FlushInterval: 10 * time.Second,
-    RetryAttempts: 5,
-    RetryDelay:    2 * time.Second,
-    EnableMetrics: true,
-}
-
-factory := kafka.NewProcessorFactory(config)
-processor, _ := factory.CreateProcessor(config.ConsumerConfig.Brokers, 
-                                       config.ConsumerConfig.Topic, 
-                                       alertEngine)
-```
-
-## Error Handling
-
-The package implements a multi-layered error handling strategy:
-
-### 1. Message-Level Errors
-- Invalid JSON messages are logged and skipped
-- Processing continues with the next message
-- Error metrics are updated
-
-### 2. Retry Logic
-- Configurable retry attempts with exponential backoff
-- Automatic retry for transient failures
-- Circuit breaker pattern for persistent failures
-
-### 3. Health Monitoring
-- Continuous health checks based on error rates
-- Lag monitoring for consumer performance
-- Automatic recovery mechanisms
-
-### 4. Graceful Shutdown
-- Context-based cancellation
-- Proper resource cleanup
-- Flush remaining messages before shutdown
-
-## Monitoring & Metrics
-
-### ProcessorMetrics
-
-```go
-type ProcessorMetrics struct {
-    MessagesProcessed int64         // Total messages processed
-    MessagesFailure   int64         // Total failed messages
-    ProcessingTime    time.Duration // Average processing time
-    LastProcessed     time.Time     // Last processed message timestamp
-    ErrorRate         float64       // Current error rate (0.0-1.0)
-}
+metrics := processor.GetMetrics()
+fmt.Printf("Messages Processed: %d\n", metrics.MessagesProcessed)
+fmt.Printf("Messages Failed: %d\n", metrics.MessagesFailure)
+fmt.Printf("Error Rate: %.2f%%\n", metrics.ErrorRate*100)
+fmt.Printf("Last Processed: %v\n", metrics.LastProcessed)
 ```
 
 ### Health Checks
 
 ```go
 // Check processor health
-if processor.HealthCheck() {
-    log.Println("Processor is healthy")
-} else {
-    log.Println("Processor is unhealthy - check logs")
+healthy := processor.HealthCheck()
+if !healthy {
+    // Handle unhealthy state
 }
 
-// Get detailed metrics
-metrics := processor.GetMetrics()
-log.Printf("Error rate: %.2f%%", metrics.ErrorRate*100)
+// Check consumer health  
+healthy = consumer.HealthCheck()
+if !healthy {
+    // Handle unhealthy state
+}
 ```
 
-### Consumer Statistics
+## Testing Utilities
+
+The package includes comprehensive mocks for testing:
+
+### MockAlertEngine
 
 ```go
-// Get Kafka consumer statistics
-stats := consumer.GetStats()
-log.Printf("Consumer lag: %d", stats.Lag)
-log.Printf("Messages consumed: %d", stats.Messages)
+mockEngine := mocks.NewMockAlertEngine()
+
+// Configure mock behavior
+mockEngine.SetProcessingTime(50 * time.Millisecond)
+mockEngine.SetShouldPanic(false)
+
+// Verify calls
+assert.True(t, mockEngine.WasCalled())
+assert.Equal(t, 5, mockEngine.GetCallCount())
+
+// Get evaluated logs
+logs := mockEngine.GetEvaluatedLogs()
+assert.Len(t, logs, 5)
+```
+
+### MockStateStore
+
+```go
+mockStore := mocks.NewMockStateStore()
+
+// Test log statistics
+stats, err := mockStore.GetLogStats()
+assert.NoError(t, err)
+assert.NotNil(t, stats)
 ```
 
 ## Best Practices
 
-### 1. Configuration
-- Use environment variables for broker addresses and credentials
-- Set appropriate batch sizes based on your throughput requirements
-- Configure consumer groups for horizontal scaling
+1. **Use Factory Pattern**: Prefer using ProcessorFactory for creating processors
+2. **Configure Timeouts**: Set appropriate timeouts for your use case
+3. **Monitor Metrics**: Regularly check processor metrics and health
+4. **Graceful Shutdown**: Always handle context cancellation properly
+5. **Error Handling**: Implement proper error handling and retry logic
+6. **Testing**: Use the provided mocks for unit testing
 
-### 2. Error Handling
-- Monitor error rates and set up alerts
-- Implement proper retry logic for transient failures
-- Use circuit breakers for cascading failure prevention
+## Dependencies
 
-### 3. Performance
-- Use batch processing for high-throughput scenarios
-- Tune consumer configuration (MinBytes, MaxBytes, MaxWait)
-- Consider consumer groups for parallel processing
+- `github.com/segmentio/kafka-go` - Kafka client library
+- `github.com/testcontainers/testcontainers-go` - For integration testing
+- `github.com/stretchr/testify` - Testing framework
 
-### 4. Monitoring
-- Implement comprehensive logging
-- Set up metrics collection and alerting
-- Monitor consumer lag and processing rates
+## Error Handling
 
-### 5. Testing
-- Use dependency injection for easier testing
-- Mock the AlertEngine interface for unit tests
-- Test with various message formats and error scenarios
+The package implements robust error handling:
+- Connection failures are retried automatically
+- Invalid messages are logged but don't stop processing
+- Context cancellation is handled gracefully
+- Metrics track error rates for monitoring
 
-## API Reference
+## Performance Considerations
 
-### Core Functions
+- Batch processing reduces overhead for high-volume scenarios
+- Configurable batch sizes and flush intervals
+- Health checks detect performance degradation
+- Error rate monitoring helps identify issues early
 
-#### NewConsumer
-```go
-func NewConsumer(config ConsumerConfig, alertEngine AlertEngine) *Consumer
+## Troubleshooting Integration Tests
+
+### Container Start/Stop Issues
+
+**Problem:** Containers keep starting and stopping when running `go test -tags=integration ./internal/kafka/ -race -v`
+
+**Root Cause:** 
+- Multiple Kafka containers (7 total) created simultaneously
+- Race detector + parallel execution causes resource conflicts
+- Docker port conflicts and container lifecycle race conditions
+
+**Solutions:**
+1. **Use the test script (recommended):**
+   ```bash
+   ./scripts/run_kafka_integration_tests.sh -m race-safe -r
+   ```
+
+2. **Force sequential execution:**
+   ```bash
+   go test -tags=integration ./internal/kafka/ -race -v -p 1
+   ```
+
+3. **Run without race detection first:**
+   ```bash
+   go test -tags=integration ./internal/kafka/ -v -p 1
+   ```
+
+### Docker Issues
+
+**Problem:** `docker: command not found` during cleanup
+
+**Cause:** Script tries to use `docker` command but you're using Podman or Docker is not in PATH
+
+**Solution:** ✅ **FIXED** - The script now automatically detects and uses either `docker` or `podman`. No action needed - testcontainers handles cleanup automatically.
+
+**Problem:** `unable to find network with name or ID bridge: network not found` (Podman)
+
+**Cause:** Testcontainers expects a "bridge" network but Podman uses "podman" as the default bridge network
+
+**Solutions:**
+1. **Use the test script (recommended - auto-configures for Podman):**
+   ```bash
+   # The script automatically detects and configures Podman
+   ./scripts/run_kafka_integration_tests.sh -m race-safe
+   ```
+
+2. **Manual Podman configuration (if needed):**
+   ```bash
+   # Set environment variables before running tests
+   export TESTCONTAINERS_RYUK_DISABLED=true
+   export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=unix:///run/podman/podman.sock
+   export DOCKER_HOST=unix:///run/podman/podman.sock
+   
+   # Then run tests
+   go test -tags=integration ./internal/kafka/ -v -p 1
+   ```
+
+3. **Use Docker instead of Podman:**
+   ```bash
+   # Install Docker Desktop and ensure Docker daemon is running
+   # Then run tests normally
+   ./scripts/run_kafka_integration_tests.sh
+   ```
+
+4. **Alternative Podman configuration:**
+   ```bash
+   # Enable Podman Docker compatibility socket
+   systemctl --user enable podman.socket
+   export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
+   export TESTCONTAINERS_RYUK_DISABLED=true
+   ```
+
+**Problem:** Docker containers not cleaning up properly
+
+**Solution:** Use the cleanup option:
+```bash
+./scripts/run_kafka_integration_tests.sh -d  # Clean before running
 ```
 
-#### NewLogProcessor
-```go
-func NewLogProcessor(brokers []string, topic string, alertEngine AlertEngine) *LogProcessor
+**Problem:** "Container creation failed" or port conflicts
+
+**Solutions:**
+1. Stop existing Kafka containers (works with docker or podman):
+   ```bash
+   # For Docker
+   docker ps -a | grep kafka | awk '{print $1}' | xargs docker rm -f
+   
+   # For Podman  
+   podman ps -a | grep kafka | awk '{print $1}' | xargs podman rm -f
+   ```
+
+2. Use sequential mode to avoid port conflicts:
+   ```bash
+   ./scripts/run_kafka_integration_tests.sh -m sequential
+   ```
+
+### Performance Issues
+
+**Problem:** Tests are very slow
+
+**Cause:** Each test function creates its own container (~30 seconds startup time)
+
+**Optimization:** The updated tests use shared containers where possible to reduce startup overhead.
+
+### Race Detection Issues
+
+**Problem:** Race conditions detected in test code
+
+**Solution:** The tests are designed to handle expected race conditions (like context cancellation). Use the `race-safe` mode which has better timeout handling.
+
+**Problem:** Spurious race detection failures
+
+**Solution:** Race detection with testcontainers can have timing issues. If tests pass without `-race` but fail with it, use:
+```bash
+./scripts/run_kafka_integration_tests.sh -m race-safe -r -v
 ```
-
-#### NewConsumerGroup
-```go
-func NewConsumerGroup(config ConsumerConfig, alertEngine AlertEngine, consumerCount int) *ConsumerGroup
-```
-
-#### NewProcessorFactory
-```go
-func NewProcessorFactory(config ProcessorConfig) *ProcessorFactory
-```
-
-### Interface Requirements
-
-#### AlertEngine Interface
-```go
-type AlertEngine interface {
-    EvaluateLog(logEntry models.LogEntry)
-}
-```
-
-Your alert engine implementation must satisfy this interface to work with the Kafka consumers and processors.
-
----
-
-For more detailed examples and advanced usage patterns, refer to the source code and tests in this package. 

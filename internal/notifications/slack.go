@@ -6,20 +6,53 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/log-monitoring/alert-engine/pkg/models"
 )
 
+// SlackConfig holds configuration for Slack notifications
+type SlackConfig struct {
+	WebhookURL     string            `json:"webhook_url"`
+	Channel        string            `json:"channel"`
+	Username       string            `json:"username"`
+	IconEmoji      string            `json:"icon_emoji"`
+	Timeout        time.Duration     `json:"timeout"`
+	Enabled        bool              `json:"enabled"`
+	Templates      TemplateConfig    `json:"templates"`
+	SeverityEmojis map[string]string `json:"severity_emojis"`
+	SeverityColors map[string]string `json:"severity_colors"`
+}
+
+// TemplateConfig holds message template configuration
+type TemplateConfig struct {
+	AlertMessage     string               `json:"alert_message"`
+	SlackAlertTitle  string               `json:"slack_alert_title"`
+	SlackAlertFields []SlackTemplateField `json:"slack_alert_fields"`
+}
+
+// SlackTemplateField represents a field template for Slack attachments
+type SlackTemplateField struct {
+	Title string `json:"title"`
+	Value string `json:"value"`
+	Short bool   `json:"short"`
+}
+
 // SlackNotifier implements the Notifier interface for Slack
 type SlackNotifier struct {
-	webhookURL string
-	channel    string
-	username   string
-	iconEmoji  string
-	enabled    bool
-	config     NotificationConfig
-	client     *http.Client
+	config               SlackConfig
+	client               *http.Client
+	alertMessageTemplate *template.Template
+	titleTemplate        *template.Template
+	fieldTemplates       []SlackFieldTemplate
+}
+
+// SlackFieldTemplate holds compiled field templates
+type SlackFieldTemplate struct {
+	Title         string
+	ValueTemplate *template.Template
+	Short         bool
 }
 
 // SlackMessage represents a Slack message payload
@@ -49,43 +82,111 @@ type SlackField struct {
 	Short bool   `json:"short"`
 }
 
-// NewSlackNotifier creates a new Slack notifier
+// NewSlackNotifier creates a new Slack notifier with configuration
 func NewSlackNotifier(webhookURL string) *SlackNotifier {
-	return &SlackNotifier{
-		webhookURL: webhookURL,
-		channel:    "#alerts",
-		username:   "Alert Engine",
-		iconEmoji:  ":warning:",
-		enabled:    true,
-		config:     DefaultNotificationConfig(),
+	return NewSlackNotifierWithConfig(SlackConfig{
+		WebhookURL:     webhookURL,
+		Channel:        "#alerts",
+		Username:       "Alert Engine",
+		IconEmoji:      ":warning:",
+		Timeout:        30 * time.Second,
+		Enabled:        true,
+		Templates:      DefaultTemplateConfig(),
+		SeverityEmojis: DefaultSeverityEmojis(),
+		SeverityColors: DefaultSeverityColors(),
+	})
+}
+
+// NewSlackNotifierWithConfig creates a new Slack notifier with full configuration
+func NewSlackNotifierWithConfig(config SlackConfig) *SlackNotifier {
+	notifier := &SlackNotifier{
+		config: config,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: config.Timeout,
 		},
+	}
+
+	// Compile templates
+	notifier.compileTemplates()
+
+	return notifier
+}
+
+// compileTemplates compiles all message templates
+func (s *SlackNotifier) compileTemplates() {
+	var err error
+
+	// Compile alert message template
+	s.alertMessageTemplate, err = template.New("alert_message").Parse(s.config.Templates.AlertMessage)
+	if err != nil {
+		// Fallback to default template
+		s.alertMessageTemplate, _ = template.New("alert_message").Parse(DefaultTemplateConfig().AlertMessage)
+	}
+
+	// Compile title template
+	s.titleTemplate, err = template.New("title").Parse(s.config.Templates.SlackAlertTitle)
+	if err != nil {
+		// Fallback to default template
+		s.titleTemplate, _ = template.New("title").Parse(DefaultTemplateConfig().SlackAlertTitle)
+	}
+
+	// Compile field templates
+	s.fieldTemplates = make([]SlackFieldTemplate, len(s.config.Templates.SlackAlertFields))
+	for i, fieldConfig := range s.config.Templates.SlackAlertFields {
+		tmpl, err := template.New(fmt.Sprintf("field_%d", i)).Parse(fieldConfig.Value)
+		if err != nil {
+			// Use raw value if template compilation fails
+			tmpl, _ = template.New(fmt.Sprintf("field_%d", i)).Parse("{{.Value}}")
+		}
+
+		s.fieldTemplates[i] = SlackFieldTemplate{
+			Title:         fieldConfig.Title,
+			ValueTemplate: tmpl,
+			Short:         fieldConfig.Short,
+		}
 	}
 }
 
-// SendAlert sends an alert to Slack
+// SendAlert sends an alert to Slack using configured templates
 func (s *SlackNotifier) SendAlert(alert models.Alert) error {
-	if !s.enabled {
+	if !s.config.Enabled {
 		return fmt.Errorf("slack notifier is disabled")
 	}
 
-	message := s.buildSlackMessage(alert)
+	if s.config.WebhookURL == "" {
+		return fmt.Errorf("slack webhook URL not configured")
+	}
 
+	message := s.buildSlackMessage(alert)
 	return s.sendMessage(message)
 }
 
-// buildSlackMessage builds a Slack message from an alert
+// buildSlackMessage builds a Slack message from an alert using templates
 func (s *SlackNotifier) buildSlackMessage(alert models.Alert) SlackMessage {
-	severityEmoji := GetSeverityEmoji(alert.Severity)
-	severityColor := GetSeverityColor(alert.Severity)
+	// Prepare template data
+	templateData := s.prepareTemplateData(alert)
 
-	title := fmt.Sprintf("%s %s", severityEmoji, alert.RuleName)
+	// Build title
+	title := s.renderTemplate(s.titleTemplate, templateData)
 
-	// Build main text
-	text := fmt.Sprintf("Alert triggered for rule: *%s*", alert.RuleName)
+	// Build alert message text
+	text := s.renderTemplate(s.alertMessageTemplate, templateData)
 
-	// Build attachment with details
+	// Build fields
+	var fields []SlackField
+	for _, fieldTemplate := range s.fieldTemplates {
+		value := s.renderTemplate(fieldTemplate.ValueTemplate, templateData)
+		fields = append(fields, SlackField{
+			Title: fieldTemplate.Title,
+			Value: value,
+			Short: fieldTemplate.Short,
+		})
+	}
+
+	// Get severity color
+	severityColor := s.getSeverityColor(alert.Severity)
+
+	// Build attachment
 	attachment := SlackAttachment{
 		Color:      severityColor,
 		Title:      title,
@@ -93,47 +194,68 @@ func (s *SlackNotifier) buildSlackMessage(alert models.Alert) SlackMessage {
 		Timestamp:  alert.Timestamp.Unix(),
 		Footer:     "Alert Engine",
 		FooterIcon: ":warning:",
-		Fields: []SlackField{
-			{
-				Title: "Severity",
-				Value: strings.ToUpper(alert.Severity),
-				Short: true,
-			},
-			{
-				Title: "Namespace",
-				Value: alert.LogEntry.GetNamespace(),
-				Short: true,
-			},
-			{
-				Title: "Service",
-				Value: s.getServiceName(alert.LogEntry),
-				Short: true,
-			},
-			{
-				Title: "Pod",
-				Value: alert.LogEntry.Kubernetes.Pod,
-				Short: true,
-			},
-			{
-				Title: "Log Level",
-				Value: alert.LogEntry.Level,
-				Short: true,
-			},
-			{
-				Title: "Count",
-				Value: fmt.Sprintf("%d", alert.Count),
-				Short: true,
-			},
-		},
+		Fields:     fields,
 	}
 
 	return SlackMessage{
-		Channel:     s.channel,
-		Username:    s.username,
-		IconEmoji:   s.iconEmoji,
+		Channel:     s.config.Channel,
+		Username:    s.config.Username,
+		IconEmoji:   s.config.IconEmoji,
 		Text:        text,
 		Attachments: []SlackAttachment{attachment},
 	}
+}
+
+// prepareTemplateData prepares data for template rendering
+func (s *SlackNotifier) prepareTemplateData(alert models.Alert) map[string]interface{} {
+	return map[string]interface{}{
+		"RuleName":      alert.RuleName,
+		"Service":       s.getServiceName(alert.LogEntry),
+		"Namespace":     alert.LogEntry.GetNamespace(),
+		"Level":         alert.LogEntry.Level,
+		"Count":         alert.Count,
+		"TimeWindow":    "N/A", // TODO: Extract from rule if available
+		"Message":       alert.LogEntry.Message,
+		"Severity":      strings.ToUpper(alert.Severity),
+		"SeverityEmoji": s.getSeverityEmoji(alert.Severity),
+		"Pod":           alert.LogEntry.GetPodName(),
+	}
+}
+
+// renderTemplate renders a template with the given data
+func (s *SlackNotifier) renderTemplate(tmpl *template.Template, data map[string]interface{}) string {
+	if tmpl == nil {
+		return ""
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Sprintf("Template error: %v", err)
+	}
+
+	return buf.String()
+}
+
+// getSeverityEmoji returns emoji for severity levels using configuration
+func (s *SlackNotifier) getSeverityEmoji(severity string) string {
+	if emoji, exists := s.config.SeverityEmojis[severity]; exists {
+		return emoji
+	}
+	if defaultEmoji, exists := s.config.SeverityEmojis["default"]; exists {
+		return defaultEmoji
+	}
+	return "⚪"
+}
+
+// getSeverityColor returns color for severity levels using configuration
+func (s *SlackNotifier) getSeverityColor(severity string) string {
+	if color, exists := s.config.SeverityColors[severity]; exists {
+		return color
+	}
+	if defaultColor, exists := s.config.SeverityColors["default"]; exists {
+		return defaultColor
+	}
+	return "#808080"
 }
 
 // formatLogMessage formats the log message for Slack
@@ -169,7 +291,7 @@ func (s *SlackNotifier) sendMessage(message SlackMessage) error {
 		return fmt.Errorf("failed to marshal Slack message: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", s.webhookURL, bytes.NewBuffer(payload))
+	req, err := http.NewRequest("POST", s.config.WebhookURL, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -192,9 +314,9 @@ func (s *SlackNotifier) sendMessage(message SlackMessage) error {
 // TestConnection tests the Slack connection
 func (s *SlackNotifier) TestConnection() error {
 	testMessage := SlackMessage{
-		Channel:   s.channel,
-		Username:  s.username,
-		IconEmoji: s.iconEmoji,
+		Channel:   s.config.Channel,
+		Username:  s.config.Username,
+		IconEmoji: s.config.IconEmoji,
 		Text:      "Test message from Alert Engine",
 		Attachments: []SlackAttachment{
 			{
@@ -220,134 +342,166 @@ func (s *SlackNotifier) TestConnection() error {
 	return s.sendMessage(testMessage)
 }
 
-// GetName returns the notifier name
-func (s *SlackNotifier) GetName() string {
-	return "slack"
-}
-
-// IsEnabled returns whether the notifier is enabled
-func (s *SlackNotifier) IsEnabled() bool {
-	return s.enabled
-}
-
-// SetEnabled enables or disables the notifier
+// Configuration getter/setter methods for backward compatibility
+func (s *SlackNotifier) GetName() string { return "slack" }
+func (s *SlackNotifier) IsEnabled() bool { return s.config.Enabled && s.config.WebhookURL != "" }
 func (s *SlackNotifier) SetEnabled(enabled bool) {
-	s.enabled = enabled
+	s.config.Enabled = enabled
+}
+func (s *SlackNotifier) SetChannel(channel string)       { s.config.Channel = channel }
+func (s *SlackNotifier) SetUsername(username string)     { s.config.Username = username }
+func (s *SlackNotifier) SetIconEmoji(iconEmoji string)   { s.config.IconEmoji = iconEmoji }
+func (s *SlackNotifier) SetWebhookURL(webhookURL string) { s.config.WebhookURL = webhookURL }
+
+// UpdateConfig updates the entire configuration and recompiles templates
+func (s *SlackNotifier) UpdateConfig(config SlackConfig) {
+	s.config = config
+	s.client.Timeout = config.Timeout
+	s.compileTemplates()
 }
 
-// SetChannel sets the Slack channel
-func (s *SlackNotifier) SetChannel(channel string) {
-	s.channel = channel
-}
-
-// SetUsername sets the Slack username
-func (s *SlackNotifier) SetUsername(username string) {
-	s.username = username
-}
-
-// SetIconEmoji sets the Slack icon emoji
-func (s *SlackNotifier) SetIconEmoji(iconEmoji string) {
-	s.iconEmoji = iconEmoji
-}
-
-// SetWebhookURL sets the Slack webhook URL
-func (s *SlackNotifier) SetWebhookURL(webhookURL string) {
-	s.webhookURL = webhookURL
-}
-
-// GetConfig returns the notification configuration
-func (s *SlackNotifier) GetConfig() NotificationConfig {
+// GetConfig returns the current configuration
+func (s *SlackNotifier) GetConfig() SlackConfig {
 	return s.config
 }
 
-// SetConfig sets the notification configuration
-func (s *SlackNotifier) SetConfig(config NotificationConfig) {
-	s.config = config
-	s.client.Timeout = config.Timeout
+// Default configuration functions
+func DefaultTemplateConfig() TemplateConfig {
+	return TemplateConfig{
+		AlertMessage: `🚨 Alert: {{.RuleName}}
+Service: {{.Service}}
+Namespace: {{.Namespace}}
+Level: {{.Level}}
+Count: {{.Count}} in {{.TimeWindow}}
+Message: {{.Message}}`,
+		SlackAlertTitle: "{{.SeverityEmoji}} {{.RuleName}}",
+		SlackAlertFields: []SlackTemplateField{
+			{Title: "Severity", Value: "{{.Severity}}", Short: true},
+			{Title: "Namespace", Value: "{{.Namespace}}", Short: true},
+			{Title: "Service", Value: "{{.Service}}", Short: true},
+			{Title: "Pod", Value: "{{.Pod}}", Short: true},
+			{Title: "Log Level", Value: "{{.Level}}", Short: true},
+			{Title: "Count", Value: "{{.Count}}", Short: true},
+		},
+	}
 }
 
-// SendSimpleMessage sends a simple text message to Slack
+func DefaultSeverityEmojis() map[string]string {
+	return map[string]string{
+		"critical": "🔴",
+		"high":     "🟠",
+		"medium":   "🟡",
+		"low":      "🟢",
+		"default":  "⚪",
+	}
+}
+
+func DefaultSeverityColors() map[string]string {
+	return map[string]string{
+		"critical": "#ff0000",
+		"high":     "#ff8000",
+		"medium":   "#ffff00",
+		"low":      "#00ff00",
+		"default":  "#808080",
+	}
+}
+
+// Legacy methods for backward compatibility
 func (s *SlackNotifier) SendSimpleMessage(text string) error {
 	message := SlackMessage{
-		Channel:   s.channel,
-		Username:  s.username,
-		IconEmoji: s.iconEmoji,
+		Channel:   s.config.Channel,
+		Username:  s.config.Username,
+		IconEmoji: s.config.IconEmoji,
 		Text:      text,
 	}
-
 	return s.sendMessage(message)
 }
 
-// SendRichMessage sends a rich message with attachments to Slack
 func (s *SlackNotifier) SendRichMessage(text string, attachments []SlackAttachment) error {
 	message := SlackMessage{
-		Channel:     s.channel,
-		Username:    s.username,
-		IconEmoji:   s.iconEmoji,
+		Channel:     s.config.Channel,
+		Username:    s.config.Username,
+		IconEmoji:   s.config.IconEmoji,
 		Text:        text,
 		Attachments: attachments,
 	}
-
 	return s.sendMessage(message)
 }
 
-// SendCustomMessage sends a custom message to Slack
 func (s *SlackNotifier) SendCustomMessage(message SlackMessage) error {
-	// Override with notifier defaults if not specified
 	if message.Channel == "" {
-		message.Channel = s.channel
+		message.Channel = s.config.Channel
 	}
 	if message.Username == "" {
-		message.Username = s.username
+		message.Username = s.config.Username
 	}
 	if message.IconEmoji == "" {
-		message.IconEmoji = s.iconEmoji
+		message.IconEmoji = s.config.IconEmoji
 	}
-
 	return s.sendMessage(message)
 }
 
-// CreateAlertSummary creates a summary of multiple alerts
+func (s *SlackNotifier) ValidateConfig() error {
+	if s.config.WebhookURL == "" {
+		return fmt.Errorf("webhook URL is required")
+	}
+
+	if !strings.HasPrefix(s.config.WebhookURL, "https://hooks.slack.com/") {
+		return fmt.Errorf("invalid Slack webhook URL format")
+	}
+
+	if s.config.Channel == "" {
+		return fmt.Errorf("channel is required")
+	}
+
+	if !strings.HasPrefix(s.config.Channel, "#") && !strings.HasPrefix(s.config.Channel, "@") {
+		return fmt.Errorf("channel must start with # or @")
+	}
+
+	return nil
+}
+
+// CreateAlertSummary creates a summary message for multiple alerts
 func (s *SlackNotifier) CreateAlertSummary(alerts []models.Alert) SlackMessage {
 	if len(alerts) == 0 {
 		return SlackMessage{}
 	}
 
-	// Group alerts by severity
-	severityCounts := make(map[string]int)
+	// Count alerts by severity
+	severityCount := make(map[string]int)
 	for _, alert := range alerts {
-		severityCounts[alert.Severity]++
+		severityCount[alert.Severity]++
 	}
 
-	// Build summary text
-	text := fmt.Sprintf("📊 *Alert Summary* - %d alerts triggered", len(alerts))
+	// Create summary text
+	text := fmt.Sprintf("%d alerts triggered", len(alerts))
 
-	// Build fields for severity breakdown
+	// Create attachment with summary details
 	var fields []SlackField
-	for severity, count := range severityCounts {
-		emoji := GetSeverityEmoji(severity)
+
+	// Add severity breakdown
+	for severity, count := range severityCount {
+		emoji := s.getSeverityEmoji(severity)
 		fields = append(fields, SlackField{
-			Title: fmt.Sprintf("%s %s", emoji, strings.ToTitle(severity)),
-			Value: fmt.Sprintf("%d", count),
+			Title: fmt.Sprintf("%s %s", emoji, strings.Title(severity)),
+			Value: fmt.Sprintf("%d alert(s)", count),
 			Short: true,
 		})
 	}
 
 	// Add time range
-	if len(alerts) > 1 {
-		firstAlert := alerts[0]
-		lastAlert := alerts[len(alerts)-1]
+	if len(alerts) > 0 {
 		fields = append(fields, SlackField{
 			Title: "Time Range",
 			Value: fmt.Sprintf("%s - %s",
-				firstAlert.Timestamp.Format("15:04:05"),
-				lastAlert.Timestamp.Format("15:04:05")),
+				alerts[len(alerts)-1].Timestamp.Format("15:04:05"),
+				alerts[0].Timestamp.Format("15:04:05")),
 			Short: true,
 		})
 	}
 
 	attachment := SlackAttachment{
-		Color:      "#ffcc00",
+		Color:      "#808080", // Default gray color for summaries
 		Title:      "Alert Summary",
 		Fields:     fields,
 		Footer:     "Alert Engine",
@@ -356,31 +510,10 @@ func (s *SlackNotifier) CreateAlertSummary(alerts []models.Alert) SlackMessage {
 	}
 
 	return SlackMessage{
-		Channel:     s.channel,
-		Username:    s.username,
-		IconEmoji:   s.iconEmoji,
+		Channel:     s.config.Channel,
+		Username:    s.config.Username,
+		IconEmoji:   s.config.IconEmoji,
 		Text:        text,
 		Attachments: []SlackAttachment{attachment},
 	}
-}
-
-// ValidateConfig validates the Slack notifier configuration
-func (s *SlackNotifier) ValidateConfig() error {
-	if s.webhookURL == "" {
-		return fmt.Errorf("webhook URL is required")
-	}
-
-	if !strings.HasPrefix(s.webhookURL, "https://hooks.slack.com/") {
-		return fmt.Errorf("invalid Slack webhook URL format")
-	}
-
-	if s.channel == "" {
-		return fmt.Errorf("channel is required")
-	}
-
-	if !strings.HasPrefix(s.channel, "#") && !strings.HasPrefix(s.channel, "@") {
-		return fmt.Errorf("channel must start with # or @")
-	}
-
-	return nil
 }

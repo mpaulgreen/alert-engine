@@ -8,6 +8,16 @@ import (
 	"github.com/log-monitoring/alert-engine/pkg/models"
 )
 
+// DefaultRulesConfig holds configuration for default rules
+type DefaultRulesConfig struct {
+	Enabled           bool               `json:"enabled"`
+	Rules             []models.AlertRule `json:"rules"`
+	DefaultThreshold  int                `json:"default_threshold"`
+	DefaultTimeWindow time.Duration      `json:"default_time_window"`
+	DefaultChannel    string             `json:"default_channel"`
+	DefaultSeverity   string             `json:"default_severity"`
+}
+
 // ValidateRule validates an alert rule for correctness
 func ValidateRule(rule models.AlertRule) error {
 	if rule.ID == "" {
@@ -45,8 +55,45 @@ func ValidateRule(rule models.AlertRule) error {
 	return nil
 }
 
-// CreateDefaultRules creates a set of default alert rules
+// CreateDefaultRules creates a set of default alert rules using defaults
 func CreateDefaultRules() []models.AlertRule {
+	return CreateDefaultRulesWithConfig(DefaultRulesConfig{
+		Enabled:           true,
+		DefaultThreshold:  5,
+		DefaultTimeWindow: 5 * time.Minute,
+		DefaultChannel:    "#alerts",
+		DefaultSeverity:   "medium",
+	})
+}
+
+// max returns the maximum of two time.Duration values
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// maxInt returns the maximum of two int values
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// CreateDefaultRulesWithConfig creates default rules using the provided configuration
+func CreateDefaultRulesWithConfig(config DefaultRulesConfig) []models.AlertRule {
+	if !config.Enabled {
+		return []models.AlertRule{}
+	}
+
+	// If custom rules are provided, use them
+	if len(config.Rules) > 0 {
+		return config.Rules
+	}
+
+	// Otherwise, create standard default rules using the config
 	return []models.AlertRule{
 		{
 			ID:          "default-error-alert",
@@ -55,12 +102,12 @@ func CreateDefaultRules() []models.AlertRule {
 			Enabled:     true,
 			Conditions: models.AlertConditions{
 				LogLevel:   "ERROR",
-				Threshold:  5,
-				TimeWindow: 5 * time.Minute,
+				Threshold:  config.DefaultThreshold,
+				TimeWindow: config.DefaultTimeWindow,
 				Operator:   "gt",
 			},
 			Actions: models.AlertActions{
-				Channel:  "#alerts",
+				Channel:  config.DefaultChannel,
 				Severity: "high",
 			},
 			CreatedAt: time.Now(),
@@ -74,12 +121,12 @@ func CreateDefaultRules() []models.AlertRule {
 			Conditions: models.AlertConditions{
 				LogLevel:   "ERROR",
 				Keywords:   []string{"database", "connection", "failed"},
-				Threshold:  3,
-				TimeWindow: 2 * time.Minute,
+				Threshold:  maxInt(1, config.DefaultThreshold-2),                   // Lower threshold for critical issues
+				TimeWindow: maxDuration(2*time.Minute, config.DefaultTimeWindow/2), // Shorter window for critical issues
 				Operator:   "gt",
 			},
 			Actions: models.AlertActions{
-				Channel:  "#infrastructure",
+				Channel:  config.DefaultChannel,
 				Severity: "critical",
 			},
 			CreatedAt: time.Now(),
@@ -93,13 +140,13 @@ func CreateDefaultRules() []models.AlertRule {
 			Conditions: models.AlertConditions{
 				LogLevel:   "WARN",
 				Keywords:   []string{"memory", "usage", "high"},
-				Threshold:  10,
-				TimeWindow: 10 * time.Minute,
+				Threshold:  maxInt(5, config.DefaultThreshold*2),                    // Higher threshold for warnings
+				TimeWindow: maxDuration(10*time.Minute, config.DefaultTimeWindow*2), // Longer window for warnings
 				Operator:   "gt",
 			},
 			Actions: models.AlertActions{
-				Channel:  "#monitoring",
-				Severity: "medium",
+				Channel:  config.DefaultChannel,
+				Severity: config.DefaultSeverity,
 			},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -107,8 +154,18 @@ func CreateDefaultRules() []models.AlertRule {
 	}
 }
 
-// GetRuleTemplate returns a template for creating new alert rules
+// GetRuleTemplate returns a template for creating new alert rules with configurable defaults
 func GetRuleTemplate() models.AlertRule {
+	return GetRuleTemplateWithConfig(DefaultRulesConfig{
+		DefaultThreshold:  5,
+		DefaultTimeWindow: 5 * time.Minute,
+		DefaultChannel:    "#alerts",
+		DefaultSeverity:   "medium",
+	})
+}
+
+// GetRuleTemplateWithConfig returns a template using the provided configuration
+func GetRuleTemplateWithConfig(config DefaultRulesConfig) models.AlertRule {
 	return models.AlertRule{
 		ID:          "",
 		Name:        "",
@@ -119,14 +176,25 @@ func GetRuleTemplate() models.AlertRule {
 			Namespace:  "",
 			Service:    "",
 			Keywords:   []string{},
-			Threshold:  5,
-			TimeWindow: 5 * time.Minute,
+			Threshold:  config.DefaultThreshold,
+			TimeWindow: config.DefaultTimeWindow,
 			Operator:   "gt",
 		},
 		Actions: models.AlertActions{
-			Channel:  "#alerts",
-			Severity: "medium",
+			Channel:  config.DefaultChannel,
+			Severity: config.DefaultSeverity,
 		},
+	}
+}
+
+// DefaultDefaultRulesConfig returns the default configuration for rules
+func DefaultDefaultRulesConfig() DefaultRulesConfig {
+	return DefaultRulesConfig{
+		Enabled:           true,
+		DefaultThreshold:  5,
+		DefaultTimeWindow: 5 * time.Minute,
+		DefaultChannel:    "#alerts",
+		DefaultSeverity:   "medium",
 	}
 }
 

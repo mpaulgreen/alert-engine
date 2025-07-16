@@ -21,6 +21,7 @@ type StateStore interface {
 	GetCounter(ruleID string, window time.Duration) (int64, error)
 	SetAlertStatus(ruleID string, status models.AlertStatus) error
 	GetAlertStatus(ruleID string) (*models.AlertStatus, error)
+	SaveAlert(alert models.Alert) error
 	GetRecentAlerts(limit int) ([]models.Alert, error)
 	GetLogStats() (*models.LogStats, error)
 	GetHealthStatus() (bool, error)

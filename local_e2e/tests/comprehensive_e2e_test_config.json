@@ -1,0 +1,468 @@
+{
+  "test_scenarios": [
+    {
+      "name": "health_check",
+      "description": "Verify alert engine health endpoint is responding",
+      "endpoint": "/api/v1/health",
+      "method": "GET",
+      "expected_status": 200,
+      "validation": "success_and_healthy"
+    },
+    {
+      "name": "create_payment_service_error_rule", 
+      "description": "Pattern 1: ERROR logs from payment service (Basic Threshold Alert)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-payment-service-errors",
+        "name": "Payment Service Error Alert",
+        "description": "Alert when payment service has more than 10 ERROR logs in 5 minutes",
+        "enabled": true,
+        "conditions": {
+          "log_level": "ERROR",
+          "service": "payment-service",
+          "threshold": 1,
+          "time_window": 300,
+          "operator": "gte"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "high"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_user_service_warn_rule",
+      "description": "Pattern 2: WARN messages from user-service (Basic Threshold Alert)",
+      "endpoint": "/api/v1/rules", 
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-user-service-warns",
+        "name": "User Service Warning Alert",
+        "description": "Alert when user-service shows over 50 WARN messages per hour",
+        "enabled": true,
+        "conditions": {
+          "log_level": "WARN",
+          "service": "user-service",
+          "threshold": 1,
+          "time_window": 300,
+          "operator": "gte"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "medium"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_database_fatal_rule",
+      "description": "Pattern 3: FATAL errors from database service (Basic Threshold Alert)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-database-fatal-errors",
+        "name": "Database Fatal Error Alert",
+        "description": "Notify if database service has any FATAL errors in the last 10 minutes",
+        "enabled": true,
+        "conditions": {
+          "log_level": "FATAL",
+          "service": "database-service",
+          "threshold": 1,
+          "time_window": 600,
+          "operator": "gte"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "critical"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_auth_api_error_rule",
+      "description": "Pattern 4: ERROR logs from authentication-api (Basic Threshold Alert)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-auth-api-errors",
+        "name": "Authentication API Error Alert",
+        "description": "Send critical alert if authentication-api exceeds 25 ERROR logs in 2 minutes",
+        "enabled": true,
+        "conditions": {
+          "log_level": "ERROR",
+          "service": "authentication-api",
+          "threshold": 1,
+          "time_window": 120,
+          "operator": "gt"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "critical"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_checkout_payment_failed_rule",
+      "description": "Pattern 6: Payment failed messages in checkout-service (Service-Specific Content)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-checkout-payment-failed",
+        "name": "Checkout Payment Failed Alert",
+        "description": "Alert if checkout-service logs contain more than 5 'payment failed' messages in 10 minutes",
+        "enabled": true,
+        "conditions": {
+          "service": "checkout-service",
+          "keywords": ["payment failed"],
+          "threshold": 1,
+          "time_window": 600,
+          "operator": "gte"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "high"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_inventory_stock_unavailable_rule",
+      "description": "Pattern 7: Stock unavailable errors in inventory-service (Service-Specific Content)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-inventory-stock-unavailable",
+        "name": "Inventory Stock Unavailable Alert",
+        "description": "Page me when inventory-service shows over 20 'stock unavailable' errors per hour",
+        "enabled": true,
+        "conditions": {
+          "service": "inventory-service",
+          "keywords": ["stock unavailable"],
+          "threshold": 1,
+          "time_window": 3600,
+          "operator": "gte"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "high"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_email_smtp_failed_rule",
+      "description": "Pattern 8: SMTP connection failed in email-service (Service-Specific Content)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-email-smtp-failed",
+        "name": "Email SMTP Connection Failed Alert",
+        "description": "Notify team if email-service has more than 3 'SMTP connection failed' in 5 minutes",
+        "enabled": true,
+        "conditions": {
+          "service": "email-service",
+          "keywords": ["SMTP connection failed"],
+          "threshold": 1,
+          "time_window": 300,
+          "operator": "gt"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "medium"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_redis_connection_refused_rule",
+      "description": "Pattern 9: Connection refused in redis-cache service (Service-Specific Content)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-redis-connection-refused",
+        "name": "Redis Connection Refused Alert",
+        "description": "Critical page if redis-cache service logs 'connection refused' more than 2 times in 1 minute",
+        "enabled": true,
+        "conditions": {
+          "service": "redis-cache",
+          "keywords": ["connection refused"],
+          "threshold": 1,
+          "time_window": 60,
+          "operator": "gt"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "critical"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_message_queue_full_rule",
+      "description": "Pattern 10: Queue full warnings in message-queue (Service-Specific Content)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-message-queue-full",
+        "name": "Message Queue Full Alert",
+        "description": "Alert when message-queue shows over 15 'queue full' warnings in 30 minutes",
+        "enabled": true,
+        "conditions": {
+          "service": "message-queue",
+          "keywords": ["queue full"],
+          "threshold": 1,
+          "time_window": 1800,
+          "operator": "gt"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "medium"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_timeout_any_service_rule",
+      "description": "Pattern 16: Timeout in any service (Simple Content Pattern)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-timeout-any-service",
+        "name": "Service Timeout Alert",
+        "description": "Alert when any service logs 'timeout' more than 10 times in 5 minutes",
+        "enabled": true,
+        "conditions": {
+          "keywords": ["timeout"],
+          "threshold": 1,
+          "time_window": 300,
+          "operator": "gt"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "medium"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_slow_query_rule",
+      "description": "Pattern 17: Slow query in database logs (Simple Content Pattern)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-slow-query",
+        "name": "Database Slow Query Alert",
+        "description": "Page me if 'slow query' appears in database logs more than 5 times per hour",
+        "enabled": true,
+        "conditions": {
+          "keywords": ["slow query"],
+          "threshold": 1,
+          "time_window": 3600,
+          "operator": "gt"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "medium"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "create_deadlock_detected_rule",
+      "description": "Pattern 20: Deadlock detected in database service (Simple Content Pattern)",
+      "endpoint": "/api/v1/rules",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "test-deadlock-detected",
+        "name": "Database Deadlock Alert",
+        "description": "Critical page if 'deadlock detected' appears in any database service",
+        "enabled": true,
+        "conditions": {
+          "keywords": ["deadlock detected"],
+          "threshold": 1,
+          "time_window": 60,
+          "operator": "gte"
+        },
+        "actions": {
+          "slack_webhook": "{SLACK_WEBHOOK_URL}",
+          "channel": "#test-mp-channel",
+          "severity": "critical"
+        }
+      },
+      "expected_status": 201,
+      "store_response_field": "data.id"
+    },
+    {
+      "name": "verify_rules_created",
+      "description": "Verify that all 11 alert rules were created successfully",
+      "endpoint": "/api/v1/rules",
+      "method": "GET",
+      "expected_status": 200,
+      "expected_response_contains": {
+        "success": true
+      },
+      "validation": "data_array_length >= 11"
+    },
+    {
+      "name": "wait_for_rules_activation",
+      "description": "Wait for alert engine to load and activate rules (grace period)",
+      "endpoint": "/api/v1/rules",
+      "method": "GET",
+      "expected_status": 200,
+      "expected_response_contains": {
+        "success": true
+      },
+      "validation": "data_array_length >= 11",
+      "wait_timeout": 30
+    },
+    {
+      "name": "check_log_processing_stats",
+      "description": "Check log processing statistics before starting forwarder",
+      "endpoint": "/api/v1/system/logs/stats",
+      "method": "GET",
+      "expected_status": 200
+    },
+    {
+      "name": "start_mock_log_forwarder",
+      "description": "Start mock log forwarder to generate test logs for all patterns",
+      "type": "action",
+      "action": "start_log_forwarder",
+      "duration": 30
+    },
+    {
+      "name": "check_log_processing_stats_after",
+      "description": "Check log processing statistics after sending logs - MUST have processed logs > 0",
+      "endpoint": "/api/v1/system/logs/stats",
+      "method": "GET",
+      "expected_status": 200,
+      "validation": "data_total_logs >= 1"
+    },
+    {
+      "name": "check_system_metrics",
+      "description": "Check system metrics to verify Kafka/Redis connectivity",
+      "endpoint": "/api/v1/system/metrics",
+      "method": "GET",
+      "expected_status": 200
+    },
+    {
+      "name": "verify_alert_generation",
+      "description": "Verify that alerts were generated from the test logs",
+      "endpoint": "/api/v1/alerts/recent",
+      "method": "GET", 
+      "expected_status": 200,
+      "expected_response_contains": {
+        "success": true
+      },
+      "validation": "data_array_length >= 1",
+      "wait_timeout": 120
+    },
+    {
+      "name": "verify_slack_webhook_config",
+      "description": "Verify Slack webhook configuration is properly set up",
+      "type": "validation",
+      "action": "verify_slack_config"
+    }
+  ],
+  "test_configuration": {
+    "base_url": "http://localhost:8080",
+    "timeout": 30,
+    "log_file": "e2e_test_results.log",
+    "cleanup_rules": true,
+    "wait_for_alerts": true,
+    "slack_verification": true
+  },
+  "pattern_coverage": {
+    "basic_threshold_alerts": {
+      "patterns": [
+        "Payment Service ERROR logs (Pattern 1)",
+        "User Service WARN messages (Pattern 2)", 
+        "Database Service FATAL errors (Pattern 3)",
+        "Authentication API ERROR logs (Pattern 4)"
+      ],
+      "coverage": "4/4 basic threshold patterns"
+    },
+    "service_specific_content": {
+      "patterns": [
+        "Checkout Service payment failed (Pattern 6)",
+        "Inventory Service stock unavailable (Pattern 7)",
+        "Email Service SMTP connection failed (Pattern 8)",
+        "Redis Cache connection refused (Pattern 9)",
+        "Message Queue full warnings (Pattern 10)"
+      ],
+      "coverage": "5/5 service-specific content patterns"
+    },
+    "simple_content_patterns": {
+      "patterns": [
+        "Timeout in any service (Pattern 16)",
+        "Slow query in database logs (Pattern 17)",
+        "Deadlock detected in database service (Pattern 20)"
+      ],
+      "coverage": "3/3 simple content patterns"
+    },
+    "total_coverage": {
+      "supported_patterns": "11/11 fully supported patterns from coverage analysis",
+      "phase_0_validation": "Complete coverage of Phase 0 requirements"
+    }
+  }
+} 

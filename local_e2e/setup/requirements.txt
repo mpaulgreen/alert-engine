@@ -1,0 +1,9 @@
+# Python dependencies for Mock Log Forwarder
+# Used in Local E2E testing environment
+
+# Kafka client for Python
+kafka-python==2.0.2
+
+# Additional dependencies for enhanced functionality
+requests==2.31.0
+pyyaml==6.0.1 
