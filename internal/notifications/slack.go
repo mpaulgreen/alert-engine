@@ -10,6 +10,9 @@ import (
 	"text/template"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"github.com/log-monitoring/alert-engine/pkg/models"
 )
 
@@ -490,7 +493,7 @@ func (s *SlackNotifier) CreateAlertSummary(alerts []models.Alert) SlackMessage {
 	for severity, count := range severityCount {
 		emoji := s.getSeverityEmoji(severity)
 		fields = append(fields, SlackField{
-			Title: fmt.Sprintf("%s %s", emoji, strings.Title(severity)),
+			Title: fmt.Sprintf("%s %s", emoji, cases.Title(language.Und).String(severity)),
 			Value: fmt.Sprintf("%d alert(s)", count),
 			Short: true,
 		})

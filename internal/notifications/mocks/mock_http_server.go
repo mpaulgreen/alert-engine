@@ -96,13 +96,19 @@ func (s *MockSlackServer) handleRequest(w http.ResponseWriter, r *http.Request) 
 
 		// Write response
 		w.WriteHeader(response.StatusCode)
-		w.Write([]byte(response.Body))
+		if _, err := w.Write([]byte(response.Body)); err != nil {
+			// Log error but continue - this is a test mock
+			fmt.Printf("Failed to write response body: %v\n", err)
+		}
 		return
 	}
 
 	// Default response
 	w.WriteHeader(s.defaultStatus)
-	w.Write([]byte(s.defaultBody))
+	if _, err := w.Write([]byte(s.defaultBody)); err != nil {
+		// Log error but continue - this is a test mock
+		fmt.Printf("Failed to write default body: %v\n", err)
+	}
 }
 
 // GetURL returns the server's URL

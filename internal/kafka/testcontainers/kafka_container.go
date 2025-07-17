@@ -23,9 +23,9 @@ type KafkaContainer struct {
 
 // NewKafkaContainer creates and starts a new Kafka test container
 func NewKafkaContainer(ctx context.Context, t *testing.T) (*KafkaContainer, error) {
-	kafkaContainer, err := kafka.RunContainer(ctx,
+	kafkaContainer, err := kafka.Run(ctx,
+		"confluentinc/cp-kafka:7.4.0",
 		kafka.WithClusterID("test-cluster"),
-		testcontainers.WithImage("confluentinc/cp-kafka:7.4.0"),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("Kafka Server started").
 				WithOccurrence(1).
@@ -39,7 +39,9 @@ func NewKafkaContainer(ctx context.Context, t *testing.T) (*KafkaContainer, erro
 	// Get the broker addresses
 	brokers, err := kafkaContainer.Brokers(ctx)
 	if err != nil {
-		kafkaContainer.Terminate(ctx)
+		if termErr := kafkaContainer.Terminate(ctx); termErr != nil {
+			t.Logf("Failed to terminate Kafka container after broker error: %v", termErr)
+		}
 		return nil, fmt.Errorf("failed to get Kafka brokers: %w", err)
 	}
 

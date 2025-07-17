@@ -12,6 +12,7 @@ FULL_IMAGE := $(REGISTRY)/$(IMAGE_NAME):$(VERSION)
 GOOS ?= linux
 GOARCH ?= amd64
 CGO_ENABLED ?= 0
+GOLANGCI_LINT ?= $(shell go env GOPATH)/bin/golangci-lint
 
 # Build flags
 LDFLAGS := -w -s -X main.version=$(VERSION) -X main.buildTime=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -47,7 +48,7 @@ vet: ## Run go vet
 .PHONY: lint
 lint: ## Run golangci-lint (requires golangci-lint to be installed)
 	@echo "$(BLUE)Running golangci-lint...$(NC)"
-	golangci-lint run
+	$(GOLANGCI_LINT) run
 
 .PHONY: tidy
 tidy: ## Tidy Go modules
