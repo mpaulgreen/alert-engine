@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-engine-config
+  namespace: alert-engine
+  labels:
+    app.kubernetes.io/name: alert-engine
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: log-monitoring-platform
+data:
+  config.yaml: |
+    # Alert Engine Configuration - OpenShift Production Deployment
+    # This configuration uses the infrastructure components set up in alert_engine_infra_setup.md
+
+    # Production OpenShift Deployment
+    server:
+      host: "0.0.0.0"          # Container bind address
+      port: 8080               # Container port (matches service definition)
+
+    redis:
+      address: "redis-cluster-access.redis-cluster.svc.cluster.local:6379"  # Redis cluster service
+      password: ""             # No password for internal cluster access  
+      cluster_mode: true       # Enable cluster mode with go-redis v9
+
+    kafka:
+      brokers:
+        - "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"  # AMQ Streams Kafka
+      topic: "application-logs"  # Topic created in infrastructure setup
+      group_id: "alert-engine-production-group"  # Production group ID
+      consumer:
+        min_bytes: 1024
+        max_bytes: 1048576
+        max_wait: "2s"
+        start_offset: -1       # Latest messages for production
+
+    log_processing:
+      batch_size: 100          # Higher batch size for production
+      flush_interval: "5s"     # Faster processing for production
+      retry_attempts: 3
+      retry_delay: "2s"
+      enable_metrics: true
+      validation:
+        default_log_level: "INFO"
+
+    alerting:
+      default_time_window: "5m"
+      default_threshold: 5     # Higher threshold for production (reduce noise)
+
+    notifications:
+      enabled: true            # Enable all notifications - ONLY required field
+      
+      slack:
+        webhook_url: ""        # Set via SLACK_WEBHOOK_URL environment variable
+        channel: "#alerts"     # Production alerts channel
+        username: "Alert Engine (Production)"
+        icon_emoji: ":warning:"
+        timeout: "30s"
+      
+      templates:
+        alert_message: |
+          🚨 PRODUCTION Alert: {{.RuleName}}
+          Service: {{.Service}}
+          Namespace: {{.Namespace}}
+          Level: {{.Level}}
+          Count: {{.Count}} in {{.TimeWindow}}
+          Message: {{.Message}}
+        
+        slack_alert_title: "{{.SeverityEmoji}} {{.RuleName}}"
+        
+        slack_alert_fields:
+          - title: "Severity"
+            value: "{{.Severity}}"
+            short: true
+          - title: "Namespace"
+            value: "{{.Namespace}}"
+            short: true
+          - title: "Service"
+            value: "{{.Service}}"
+            short: true
+          - title: "Pod"
+            value: "{{.Pod}}"
+            short: true
+          - title: "Log Level"
+            value: "{{.Level}}"
+            short: true
+          - title: "Count"
+            value: "{{.Count}}"
+            short: true
+
+      severity:
+        emojis:
+          critical: "🔴"
+          high: "🟠"
+          medium: "🟡"
+          low: "🟢"
+          default: "⚪"
+        
+        colors:
+          critical: "#ff0000"
+          high: "#ff8000"
+          medium: "#ffff00"
+          low: "#00ff00"
+          default: "#808080"
+
+    default_rules:
+      enabled: true
+      rules:
+        - id: "production-error-alert"
+          name: "Production - Application Error Alert"
+          description: "Alert on application errors in production"
+          enabled: true
+          conditions:
+            log_level: "ERROR"
+            threshold: 5         # Higher threshold for production
+            time_window: "5m"
+            operator: "gte"
+          actions:
+            channel: "#alerts"
+            severity: "high"
+
+        - id: "production-critical-namespace-alert"
+          name: "Production - Critical Namespace Alert"
+          description: "Alert on errors in critical namespaces"
+          enabled: true
+          conditions:
+            namespace: "kube-system|openshift-|default"  # Critical namespaces
+            log_level: "ERROR"
+            threshold: 3
+            time_window: "3m"
+            operator: "gte"
+          actions:
+            channel: "#alerts"
+            severity: "critical" 

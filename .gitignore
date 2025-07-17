@@ -5,10 +5,12 @@
 *.so
 *.dylib
 server
-alert-engine
 cmd/server/server
 bin/
 build/
+
+# Alert Engine binary (keep deployments/alert-engine/ directory)
+/alert-engine
 
 # Go test files
 *.test

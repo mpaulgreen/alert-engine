@@ -262,9 +262,25 @@ class MockLogForwarder:
     def send_log(self, log_entry: Dict[str, Any]):
         """Send log entry to Kafka"""
         try:
+            # CRITICAL: Simulate Vector/ClusterLogForwarder transformation
+            # Original log becomes a JSON string in the "message" field
+            # This matches the actual production pipeline behavior
+            
+            # Create the transformed log structure that mimics Vector/ClusterLogForwarder output
+            transformed_log = {
+                "message": json.dumps(log_entry),  # Original log as JSON string
+                "@timestamp": log_entry.get("@timestamp", datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")),
+                "level": log_entry.get("level", "INFO").lower(),  # Vector lowercases levels
+                "kubernetes": log_entry.get("kubernetes", {}),
+                "host": log_entry.get("host", "unknown"),
+                "stream": "stdout",  # Added by Vector
+                "tag": "kubernetes.var.log.containers",  # Added by Vector
+                "source_type": "kubernetes_logs"  # Added by Vector
+            }
+            
             key = f"{log_entry['service']}-{log_entry['level']}"
-            self.producer.send(self.topic, key=key, value=log_entry)
-            self.logger.debug(f"Sent log: {log_entry['service']} - {log_entry['level']} - {log_entry['message'][:100]}...")
+            self.producer.send(self.topic, key=key, value=transformed_log)
+            self.logger.debug(f"Sent transformed log: {log_entry['service']} - {log_entry['level']} - {log_entry['message'][:100]}...")
         except Exception as e:
             self.logger.error(f"Failed to send log to Kafka: {e}")
     

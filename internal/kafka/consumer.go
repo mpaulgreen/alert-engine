@@ -56,6 +56,47 @@ func NewConsumer(config ConsumerConfig, alertEngine AlertEngine) *Consumer {
 	}
 }
 
+// parseMessageField parses JSON content from the message field to extract nested fields
+func (c *Consumer) parseMessageField(logEntry *models.LogEntry) {
+	if logEntry.Message == "" {
+		return
+	}
+
+	// Try to parse the message as JSON to extract nested fields
+	var nestedLog map[string]interface{}
+	if err := json.Unmarshal([]byte(logEntry.Message), &nestedLog); err != nil {
+		// Message is not JSON, keep as-is
+		return
+	}
+
+	// Extract service field from nested JSON
+	if service, ok := nestedLog["service"].(string); ok && service != "" {
+		logEntry.Service = service
+	}
+
+	// Extract level field from nested JSON if current level is empty or default
+	if level, ok := nestedLog["level"].(string); ok && level != "" {
+		// Override level if current is empty or default
+		if logEntry.Level == "" || logEntry.Level == "INFO" || logEntry.Level == "DEFAULT" {
+			logEntry.Level = level
+		}
+	}
+
+	// Extract actual message content from nested JSON
+	if message, ok := nestedLog["message"].(string); ok && message != "" {
+		logEntry.Message = message
+	}
+
+	// Extract timestamp from nested JSON if current timestamp is zero
+	if timestampStr, ok := nestedLog["timestamp"].(string); ok && timestampStr != "" {
+		if logEntry.Timestamp.IsZero() {
+			if parsedTime, err := time.Parse(time.RFC3339Nano, timestampStr); err == nil {
+				logEntry.Timestamp = parsedTime
+			}
+		}
+	}
+}
+
 // Start begins consuming messages from Kafka
 func (c *Consumer) Start(ctx context.Context) error {
 	log.Printf("Starting Kafka consumer for topic: %s", c.config.Topic)
@@ -93,6 +134,9 @@ func (c *Consumer) processMessage(ctx context.Context) error {
 
 	// Store raw message for debugging
 	logEntry.Raw = string(msg.Value)
+
+	// Parse JSON message field to extract nested fields (like service)
+	c.parseMessageField(&logEntry)
 
 	// Process the log entry through the alert engine
 	c.alertEngine.EvaluateLog(logEntry)

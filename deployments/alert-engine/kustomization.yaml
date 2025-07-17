@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: alert-engine
+  annotations:
+    description: "Alert Engine deployment for OpenShift"
+# Namespace for all resources
+namespace: alert-engine
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/instance: alert-engine-production
+# Resources to include in the deployment
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - secret.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+# Images to be used (customize as needed)
+images:
+  - name: quay.io/mpaulgreen/alert-engine
+    newTag: latest
+# ConfigMap generators (if you want to generate from files)
+# configMapGenerator:
+#   - name: alert-engine-config
+#     files:
+#       - config.yaml=../../../configs/config.yaml
+
+# Secret generators (if you want to generate from literals)
+# secretGenerator:
+#   - name: alert-engine-secrets
+#     literals:
+#       - slack-webhook-url=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+
+# Patches for environment-specific customizations
+patchesStrategicMerge: []
+# JSON 6902 patches for more complex modifications
+patchesJson6902: []
+# Replicas for scaling
+replicas:
+  - name: alert-engine
+    count: 2

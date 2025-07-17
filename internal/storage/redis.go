@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis/v8"
 	"github.com/log-monitoring/alert-engine/pkg/models"
+	"github.com/redis/go-redis/v9"
 )
 
 // RedisStore implements the StateStore interface using Redis

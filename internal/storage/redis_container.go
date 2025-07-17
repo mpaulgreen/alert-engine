@@ -13,7 +13,7 @@ import (
 
 	"encoding/json"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -184,7 +184,7 @@ func (rc *RedisContainer) Info() (string, error) {
 }
 
 // ConfigGet gets a configuration parameter
-func (rc *RedisContainer) ConfigGet(parameter string) ([]interface{}, error) {
+func (rc *RedisContainer) ConfigGet(parameter string) (map[string]string, error) {
 	return rc.client.ConfigGet(rc.ctx, parameter).Result()
 }
 

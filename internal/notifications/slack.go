@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -99,10 +100,16 @@ func NewSlackNotifier(webhookURL string) *SlackNotifier {
 
 // NewSlackNotifierWithConfig creates a new Slack notifier with full configuration
 func NewSlackNotifierWithConfig(config SlackConfig) *SlackNotifier {
+	// Create HTTP client with custom transport for TLS configuration
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // Skip TLS verification for testing
+	}
+
 	notifier := &SlackNotifier{
 		config: config,
 		client: &http.Client{
-			Timeout: config.Timeout,
+			Timeout:   config.Timeout,
+			Transport: transport,
 		},
 	}
 

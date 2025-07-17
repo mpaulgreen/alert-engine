@@ -72,14 +72,6 @@ alerting:
 # CRITICAL: Notification settings
 notifications:
   enabled: true
-  max_retries: 3
-  retry_delay: "5s"
-  timeout: "30s"
-  rate_limit_per_min: 60
-  batch_size: 5
-  batch_delay: "2s"
-  enable_deduplication: true
-  deduplication_window: "5m"
   
   # Slack notification configuration
   slack:
