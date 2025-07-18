@@ -37,19 +37,49 @@ This deployment includes the following Kubernetes resources:
 
 ## 🚀 Quick Deployment
 
-### Step 1: Configure Slack Webhook
+### Step 1: Configure Environment Variables
 
-Update the Secret with your Slack webhook URL:
+The Alert Engine requires configuration for Slack webhook URL and other settings. You can configure this using a `.env` file or by manually updating the secret.
+
+#### Option A: Using .env File (Recommended)
+
+```bash
+# 1. Create .env file from template (if it doesn't exist)
+cp .env.template .env
+
+# 2. Edit .env file with your actual values
+vim .env
+# Add: SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+
+# 3. Update secret from .env file
+./build.sh --update-secret
+
+# 4. Deploy using kustomize (will automatically use .env for secrets)
+oc apply -k .
+```
+
+#### Option B: Manual Secret Configuration
 
 ```bash
 # Option 1: Edit the secret.yaml file directly
-# Replace the slack-webhook-url value in secret.yaml with your base64 encoded webhook URL
+# Replace the SLACK_WEBHOOK_URL value in secret.yaml with your base64 encoded webhook URL
 
 # Option 2: Use kubectl/oc to create the secret
 oc create secret generic alert-engine-secrets \
-  --from-literal=slack-webhook-url="https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
+  --from-literal=SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
   --namespace=alert-engine
 ```
+
+#### Environment File Format
+
+Your `.env` file should contain:
+
+```bash
+# Alert Engine Environment Variables
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+```
+
+> **Security Note**: The `.env` file is already added to `.gitignore` to prevent committing sensitive data.
 
 ### Step 2: Build Container Image
 

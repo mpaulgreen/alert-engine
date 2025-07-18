@@ -14,26 +14,23 @@ commonLabels:
 resources:
   - namespace.yaml
   - serviceaccount.yaml
-  - secret.yaml
+  # - secret.yaml  # Using secretGenerator instead
   - configmap.yaml
   - deployment.yaml
   - service.yaml
-  # - networkpolicy.yaml # TODO: Uncomment this when we have a fix
+  # - networkpolicy.yaml # TODO: Resolve GO DNS resolver issue.
 # Images to be used (customize as needed)
 images:
   - name: quay.io/mpaulgreen/alert-engine
-    newTag: latest
-# ConfigMap generators (if you want to generate from files)
-# configMapGenerator:
-#   - name: alert-engine-config
-#     files:
-#       - config.yaml=../../../configs/config.yaml
-
-# Secret generators (if you want to generate from literals)
-# secretGenerator:
-#   - name: alert-engine-secrets
-#     literals:
-#       - slack-webhook-url=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+    newTag: test-jul-18
+# Secret generators - can be used with .env file
+secretGenerator:
+  - name: alert-engine-secrets
+    envs:
+      - .env
+    # Alternative: generate from literals if .env is not available
+    # literals:
+    #   - SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 
 # Patches for environment-specific customizations
 patchesStrategicMerge: []
