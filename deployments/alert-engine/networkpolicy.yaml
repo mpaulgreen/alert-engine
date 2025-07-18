@@ -7,15 +7,11 @@ metadata:
     app.kubernetes.io/name: alert-engine
     app.kubernetes.io/component: network-security
     app.kubernetes.io/part-of: log-monitoring-platform
-    app.kubernetes.io/instance: alert-engine-production
-    app.kubernetes.io/managed-by: kustomize
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: alert-engine
       app.kubernetes.io/component: application
-      app.kubernetes.io/instance: alert-engine-production
-      app.kubernetes.io/managed-by: kustomize
   
   policyTypes:
     - Ingress
@@ -26,7 +22,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: openshift-ingress
+              name: openshift-ingress
       ports:
         - protocol: TCP
           port: 8080
@@ -35,7 +31,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: openshift-monitoring
+              name: openshift-monitoring
       ports:
         - protocol: TCP
           port: 8080
@@ -44,7 +40,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: alert-engine
+              name: alert-engine
       ports:
         - protocol: TCP
           port: 8080
@@ -54,7 +50,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: openshift-dns
+              name: openshift-dns
       ports:
         - protocol: UDP
           port: 53
@@ -65,7 +61,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: amq-streams-kafka
+              name: amq-streams-kafka
       ports:
         - protocol: TCP
           port: 9092
@@ -74,7 +70,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: redis-cluster
+              name: redis-cluster
       ports:
         - protocol: TCP
           port: 6379
@@ -95,7 +91,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: default
+              name: default
       ports:
         - protocol: TCP
           port: 443
