@@ -95,12 +95,3 @@ notifications:
 # Default rules configuration for E2E testing
 default_rules:
   enabled: false
-
-metrics:
-  enabled: true
-  path: "/metrics"
-  port: 9090
-
-health:
-  path: "/health"
-  timeout: 5s
