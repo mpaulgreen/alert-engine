@@ -18,7 +18,7 @@ resources:
   - configmap.yaml
   - deployment.yaml
   - service.yaml
-  - networkpolicy.yaml # TODO: Uncomment this when we have a fix
+  # - networkpolicy.yaml # TODO: Uncomment this when we have a fix
 # Images to be used (customize as needed)
 images:
   - name: quay.io/mpaulgreen/alert-engine
