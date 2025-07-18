@@ -21,17 +21,30 @@ data:
       address: "redis-cluster-access.redis-cluster.svc.cluster.local:6379"  # Redis cluster service
       password: ""             # No password for internal cluster access  
       cluster_mode: true       # Enable cluster mode with go-redis v9
+      # Connection timeout settings for OpenShift environment
+      dial_timeout: "15s"      # Connection timeout for Redis
+      read_timeout: "10s"      # Read timeout for Redis operations
+      write_timeout: "10s"     # Write timeout for Redis operations
 
     kafka:
       brokers:
         - "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"  # AMQ Streams Kafka
       topic: "application-logs"  # Topic created in infrastructure setup
       group_id: "alert-engine-production-group"  # Production group ID
+      # Connection timeout settings for OpenShift environment - try common Go client parameter names
+      timeout: "30s"               # General timeout
+      net:
+        dial_timeout: "15s"        # Network dial timeout
+        read_timeout: "10s"        # Network read timeout
+        write_timeout: "10s"       # Network write timeout
       consumer:
         min_bytes: 1024
         max_bytes: 1048576
-        max_wait: "2s"
-        start_offset: -1       # Latest messages for production
+        max_wait: "10s"            # Increase from 2s to 10s for slower networks
+        start_offset: -1           # Latest messages for production
+        # Consumer-specific timeouts
+        session_timeout: "30s"     # Consumer session timeout
+        heartbeat_interval: "3s"   # Consumer heartbeat interval
 
     log_processing:
       batch_size: 100          # Higher batch size for production
