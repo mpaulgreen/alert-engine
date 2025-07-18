@@ -22,16 +22,15 @@ resources:
 # Images to be used (customize as needed)
 images:
   - name: quay.io/mpaulgreen/alert-engine
-    newTag: test-jul-18
+    newTag: test-jul-18-1
 # Secret generators - can be used with .env file
 secretGenerator:
   - name: alert-engine-secrets
     envs:
       - .env
-    # Alternative: generate from literals if .env is not available
-    # literals:
-    #   - SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
-
+      # Alternative: generate from literals if .env is not available
+      # literals:
+      #   - SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 # Patches for environment-specific customizations
 patchesStrategicMerge: []
 # JSON 6902 patches for more complex modifications

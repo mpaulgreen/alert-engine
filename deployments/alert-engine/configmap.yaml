@@ -41,7 +41,7 @@ data:
         min_bytes: 1024
         max_bytes: 1048576
         max_wait: "10s"            # Increase from 2s to 10s for slower networks
-        start_offset: -1           # Latest messages for production
+        start_offset: -2           # Earliest available messages for comprehensive alerting
         # Consumer-specific timeouts
         session_timeout: "30s"     # Consumer session timeout
         heartbeat_interval: "3s"   # Consumer heartbeat interval

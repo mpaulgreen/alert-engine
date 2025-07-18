@@ -36,7 +36,7 @@ kafka:
     min_bytes: 1024
     max_bytes: 1048576
     max_wait: "2s"
-    start_offset: -1       # Latest messages for production
+    start_offset: -2      # Read from earliest available message
 
 log_processing:
   batch_size: 100          # Higher batch size for production

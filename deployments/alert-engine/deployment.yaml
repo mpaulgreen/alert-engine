@@ -39,7 +39,7 @@ spec:
       containers:
         - name: alert-engine
           # TODO: Replace with your actual alert engine image
-          image: quay.io/mpaulgreen/alert-engine:latest
+          image: quay.io/mpaulgreen/alert-engine:test-jul-18-1
           imagePullPolicy: Always
           ports:
             - name: http
