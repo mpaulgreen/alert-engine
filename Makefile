@@ -55,6 +55,44 @@ tidy: ## Tidy Go modules
 	@echo "$(BLUE)Tidying Go modules...$(NC)"
 	go mod tidy
 
+##@ OpenShift Infrastructure
+
+.PHONY: infra-setup
+infra-setup: ## Setup complete OpenShift infrastructure (Kafka, Redis, Logging)
+	@echo "$(BLUE)Setting up OpenShift infrastructure for Alert Engine...$(NC)"
+	@echo "$(YELLOW)This will deploy Kafka, Redis Cluster, and OpenShift Logging$(NC)"
+	./scripts/setup_openshift_infrastructure.sh
+
+.PHONY: infra-validate
+infra-validate: ## Validate OpenShift infrastructure deployment
+	@echo "$(BLUE)Validating OpenShift infrastructure...$(NC)"
+	./scripts/validate_openshift_infrastructure.sh
+
+.PHONY: infra-verify-cleanup
+infra-verify-cleanup: ## Verify resources before cleanup (inventory check)
+	@echo "$(BLUE)Verifying resources before cleanup...$(NC)"
+	./scripts/verify_resources_before_cleanup.sh
+
+.PHONY: infra-cleanup
+infra-cleanup: ## Cleanup OpenShift infrastructure
+	@echo "$(YELLOW)WARNING: This will delete all infrastructure components!$(NC)"
+	@echo "$(YELLOW)Press Ctrl+C to cancel, or wait 10 seconds to continue...$(NC)"
+	@sleep 10
+	./scripts/cleanup_openshift_infrastructure.sh
+
+.PHONY: infra-status
+infra-status: ## Show quick status of all infrastructure components
+	@echo "$(BLUE)OpenShift Infrastructure Status$(NC)"
+	@echo "================================"
+	@echo "$(GREEN)Kafka Cluster:$(NC)"
+	@kubectl get kafka alert-kafka-cluster -n amq-streams-kafka -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null && echo " (Ready)" || echo " (Not Found/Not Ready)"
+	@echo "$(GREEN)Redis Cluster:$(NC)"
+	@kubectl get pods -l app=redis-cluster -n redis-cluster --no-headers 2>/dev/null | grep Running | wc -l | xargs -I {} echo "{}/6 pods running"
+	@echo "$(GREEN)ClusterLogForwarder:$(NC)"
+	@kubectl get clusterlogforwarder kafka-forwarder -n openshift-logging 2>/dev/null && echo " (Deployed)" || echo " (Not Found)"
+	@echo "$(GREEN)Alert Engine Namespace:$(NC)"
+	@kubectl get namespace alert-engine 2>/dev/null && echo " (Exists)" || echo " (Not Found)"
+
 ##@ Testing
 
 .PHONY: test
@@ -204,14 +242,9 @@ mock-dry-run: ## Show mock log generator build commands without executing
 
 ##@ OpenShift Deployment
 
-.PHONY: deploy-local
-deploy-local: ## Deploy to local OpenShift/Kubernetes
-	@echo "$(BLUE)Deploying to local cluster...$(NC)"
-	oc apply -k deployments/alert-engine/
-
-.PHONY: deploy-staging
-deploy-staging: docker-push ## Build, push, and deploy to staging
-	@echo "$(BLUE)Deploying to staging...$(NC)"
+.PHONY: deploy
+deploy: ## Deploy to OpenShift/Kubernetes
+	@echo "$(BLUE)Deploying Alert Engine...$(NC)"
 	oc apply -k deployments/alert-engine/
 
 .PHONY: logs
@@ -229,9 +262,25 @@ health: ## Check health of deployed Alert Engine
 	@echo "$(BLUE)Checking Alert Engine health...$(NC)"
 	@POD=$$(oc get pods -n alert-engine -l app.kubernetes.io/name=alert-engine -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) && \
 	if [ -n "$$POD" ]; then \
-		oc exec -n alert-engine $$POD -- /app/alert-engine --health-check; \
+		echo "$(BLUE)Pod: $$POD$(NC)"; \
+		echo "$(BLUE)Testing health endpoint via port-forward...$(NC)"; \
+		(oc port-forward pod/$$POD 18080:8080 -n alert-engine >/dev/null 2>&1 &) && \
+		PORTFW_PID=$$! && \
+		sleep 2 && \
+		HEALTH_RESPONSE=$$(curl -s --max-time 5 http://localhost:18080/api/v1/health 2>/dev/null || echo "{}") && \
+		kill $$PORTFW_PID 2>/dev/null || true && \
+		wait $$PORTFW_PID 2>/dev/null || true && \
+		if echo "$$HEALTH_RESPONSE" | grep -q '"success":true'; then \
+			echo "$(GREEN)✅ Alert Engine is healthy$(NC)"; \
+			echo "$$HEALTH_RESPONSE"; \
+		else \
+			echo "$(RED)❌ Alert Engine health check failed$(NC)"; \
+			echo "Response: $$HEALTH_RESPONSE"; \
+			exit 1; \
+		fi; \
 	else \
 		echo "$(YELLOW)No Alert Engine pods found$(NC)"; \
+		exit 1; \
 	fi
 
 ##@ Utilities
