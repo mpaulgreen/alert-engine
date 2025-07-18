@@ -175,17 +175,32 @@ clean: ## Clean build artifacts
 .PHONY: docker-build
 docker-build: ## Build container image
 	@echo "$(BLUE)Building container image...$(NC)"
-	./deployments/alert-engine/build.sh --version $(VERSION)
+	./deployments/alert-engine/build.sh --version $(VERSION) --registry $(REGISTRY)
 
 .PHONY: docker-push
 docker-push: ## Build and push container image
 	@echo "$(BLUE)Building and pushing container image...$(NC)"
-	./deployments/alert-engine/build.sh --version $(VERSION) --push
+	./deployments/alert-engine/build.sh --version $(VERSION) --registry $(REGISTRY) --push
 
 .PHONY: docker-test
 docker-test: ## Build container image with tests
 	@echo "$(BLUE)Building container image with tests...$(NC)"
-	./deployments/alert-engine/build.sh --version $(VERSION) --test
+	./deployments/alert-engine/build.sh --version $(VERSION) --registry $(REGISTRY) --test
+
+.PHONY: mock-build
+mock-build: ## Build mock log generator container image
+	@echo "$(BLUE)Building mock log generator container image...$(NC)"
+	./deployments/mock/build.sh --tag $(VERSION) --registry $(REGISTRY)
+
+.PHONY: mock-push
+mock-push: ## Build and push mock log generator container image
+	@echo "$(BLUE)Building and pushing mock log generator container image...$(NC)"
+	./deployments/mock/build.sh --tag $(VERSION) --registry $(REGISTRY) --push
+
+.PHONY: mock-dry-run
+mock-dry-run: ## Show mock log generator build commands without executing
+	@echo "$(BLUE)Mock log generator build dry run...$(NC)"
+	./deployments/mock/build.sh --tag $(VERSION) --registry $(REGISTRY) --dry-run
 
 ##@ OpenShift Deployment
 
