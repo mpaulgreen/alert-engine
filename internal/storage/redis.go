@@ -63,15 +63,21 @@ func (r *RedisStore) SaveAlertRule(rule models.AlertRule) error {
 	return r.client.Set(r.ctx, key, data, 0).Err()
 }
 
-// GetAlertRules retrieves all alert rules from Redis
+// GetAlertRules retrieves all alert rules from Redis (CLUSTER-COMPATIBLE VERSION)
 func (r *RedisStore) GetAlertRules() ([]models.AlertRule, error) {
-	keys, err := r.client.Keys(r.ctx, "alert_rule:*").Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get alert rule keys: %w", err)
+	var allKeys []string
+
+	// Use SCAN instead of Keys for cluster compatibility
+	iter := r.client.Scan(r.ctx, 0, "alert_rule:*", 0).Iterator()
+	for iter.Next(r.ctx) {
+		allKeys = append(allKeys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan alert rule keys: %w", err)
 	}
 
 	rules := make([]models.AlertRule, 0)
-	for _, key := range keys {
+	for _, key := range allKeys {
 		val, err := r.client.Get(r.ctx, key).Result()
 		if err != nil {
 			continue // Skip invalid entries
@@ -256,15 +262,21 @@ func (r *RedisStore) GetAlert(alertID string) (*models.Alert, error) {
 	return &alert, nil
 }
 
-// GetRecentAlerts retrieves recent alerts (last 24 hours)
+// GetRecentAlerts retrieves recent alerts (last 24 hours) - CLUSTER-COMPATIBLE VERSION
 func (r *RedisStore) GetRecentAlerts(limit int) ([]models.Alert, error) {
-	keys, err := r.client.Keys(r.ctx, "alert:*").Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get alert keys: %w", err)
+	var allKeys []string
+
+	// Use SCAN instead of Keys for cluster compatibility
+	iter := r.client.Scan(r.ctx, 0, "alert:*", 0).Iterator()
+	for iter.Next(r.ctx) {
+		allKeys = append(allKeys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan alert keys: %w", err)
 	}
 
 	alerts := make([]models.Alert, 0)
-	for _, key := range keys {
+	for _, key := range allKeys {
 		val, err := r.client.Get(r.ctx, key).Result()
 		if err != nil {
 			continue // Skip invalid entries
@@ -309,12 +321,16 @@ func (r *RedisStore) GetInfo() (map[string]string, error) {
 	return result, nil
 }
 
-// CleanupExpiredData removes expired data from Redis
+// CleanupExpiredData removes expired data from Redis - CLUSTER-COMPATIBLE VERSION
 func (r *RedisStore) CleanupExpiredData() error {
-	// Get all counter keys
-	counterKeys, err := r.client.Keys(r.ctx, "counter:*").Result()
-	if err != nil {
-		return fmt.Errorf("failed to get counter keys: %w", err)
+	// Get all counter keys using SCAN for cluster compatibility
+	var counterKeys []string
+	iter := r.client.Scan(r.ctx, 0, "counter:*", 0).Iterator()
+	for iter.Next(r.ctx) {
+		counterKeys = append(counterKeys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return fmt.Errorf("failed to scan counter keys: %w", err)
 	}
 
 	// Remove expired counters
@@ -332,20 +348,26 @@ func (r *RedisStore) CleanupExpiredData() error {
 	return nil
 }
 
-// GetMetrics returns storage metrics
+// GetMetrics returns storage metrics - CLUSTER-COMPATIBLE VERSION
 func (r *RedisStore) GetMetrics() (map[string]interface{}, error) {
 	metrics := make(map[string]interface{})
 
-	// Count different types of keys
-	ruleKeys, _ := r.client.Keys(r.ctx, "alert_rule:*").Result()
-	counterKeys, _ := r.client.Keys(r.ctx, "counter:*").Result()
-	statusKeys, _ := r.client.Keys(r.ctx, "alert_status:*").Result()
-	alertKeys, _ := r.client.Keys(r.ctx, "alert:*").Result()
+	// Count different types of keys using SCAN for cluster compatibility
+	patterns := map[string]string{
+		"alert_rules":    "alert_rule:*",
+		"counters":       "counter:*",
+		"alert_statuses": "alert_status:*",
+		"alerts":         "alert:*",
+	}
 
-	metrics["alert_rules"] = len(ruleKeys)
-	metrics["counters"] = len(counterKeys)
-	metrics["alert_statuses"] = len(statusKeys)
-	metrics["alerts"] = len(alertKeys)
+	for metricName, pattern := range patterns {
+		var keys []string
+		iter := r.client.Scan(r.ctx, 0, pattern, 0).Iterator()
+		for iter.Next(r.ctx) {
+			keys = append(keys, iter.Val())
+		}
+		metrics[metricName] = len(keys)
+	}
 
 	// Get memory usage
 	info, err := r.client.Info(r.ctx, "memory").Result()
@@ -391,7 +413,18 @@ func (r *RedisStore) BulkSaveAlertRules(rules []models.AlertRule) error {
 	return err
 }
 
-// Search searches for keys matching a pattern
+// Search searches for keys matching a pattern - CLUSTER-COMPATIBLE VERSION
 func (r *RedisStore) Search(pattern string) ([]string, error) {
-	return r.client.Keys(r.ctx, pattern).Result()
+	var allKeys []string
+
+	// Use SCAN instead of Keys for cluster compatibility
+	iter := r.client.Scan(r.ctx, 0, pattern, 0).Iterator()
+	for iter.Next(r.ctx) {
+		allKeys = append(allKeys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan keys with pattern %s: %w", pattern, err)
+	}
+
+	return allKeys, nil
 }

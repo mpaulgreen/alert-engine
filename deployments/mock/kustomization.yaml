@@ -31,7 +31,7 @@ resources:
 
 # Image transformations (update the image tag)
 images:
-- name: quay.io/alert-engine/mock-log-generator
+- name: quay.io/mpaulgreen/mock-log-generator
   newTag: latest
 
 # Resource transformations
