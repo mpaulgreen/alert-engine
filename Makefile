@@ -247,6 +247,27 @@ deploy: ## Deploy to OpenShift/Kubernetes
 	@echo "$(BLUE)Deploying Alert Engine...$(NC)"
 	oc apply -k deployments/alert-engine/
 
+.PHONY: deploy-with-image
+deploy-with-image: ## Deploy with custom image (use: make deploy-with-image VERSION=tag REGISTRY=registry)
+	@echo "$(BLUE)Deploying Alert Engine with custom image...$(NC)"
+	@echo "$(YELLOW)Image: $(REGISTRY)/$(IMAGE_NAME):$(VERSION)$(NC)"
+	@cd deployments/alert-engine && \
+	if command -v yq >/dev/null 2>&1; then \
+		echo "$(BLUE)Updating kustomization.yaml with yq...$(NC)"; \
+		yq eval '.images[0].newTag = "$(VERSION)"' -i kustomization.yaml; \
+		yq eval '.images[0].name = "$(REGISTRY)/$(IMAGE_NAME)"' -i kustomization.yaml; \
+	else \
+		echo "$(BLUE)Updating kustomization.yaml with sed...$(NC)"; \
+		sed -i.bak 's/newTag: .*/newTag: $(VERSION)/' kustomization.yaml; \
+		sed -i.bak 's|name: .*/.*|name: $(REGISTRY)/$(IMAGE_NAME)|' kustomization.yaml; \
+	fi
+	oc apply -k deployments/alert-engine/
+	@echo "$(GREEN)Deployment completed with image: $(REGISTRY)/$(IMAGE_NAME):$(VERSION)$(NC)"
+
+.PHONY: build-and-deploy
+build-and-deploy: docker-push deploy-with-image ## Build, push, and deploy with custom image
+	@echo "$(GREEN)Build and deployment pipeline completed!$(NC)"
+
 .PHONY: logs
 logs: ## Show logs from deployed pods
 	@echo "$(BLUE)Showing Alert Engine logs...$(NC)"

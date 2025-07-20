@@ -377,6 +377,8 @@ main() {
                 ;;
             -v|--version)
                 BUILD_VERSION="$2"
+                IMAGE_TAG="$2"
+                FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
                 shift 2
                 ;;
             --no-cache)
