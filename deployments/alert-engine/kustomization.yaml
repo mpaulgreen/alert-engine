@@ -22,7 +22,7 @@ resources:
 # Images to be used (customize as needed)
 images:
   - name: quay.io/mpaulgreen/alert-engine
-    newTag: test-jul-18-1
+    newTag: v1.1.1
 # Secret generators - can be used with .env file
 secretGenerator:
   - name: alert-engine-secrets

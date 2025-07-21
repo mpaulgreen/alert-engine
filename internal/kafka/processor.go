@@ -82,21 +82,42 @@ func NewLogProcessor(consumerConfig ConsumerConfig, logProcessingConfig LogProce
 func (lp *LogProcessor) ProcessLogs(ctx context.Context) error {
 	log.Printf("Starting log processor for topic: %s", lp.config.ConsumerConfig.Topic)
 
+	processingStartTime := time.Now()
+	var messageCount int64
+
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Log processor shutting down")
+			uptime := time.Since(processingStartTime)
+			log.Printf("Log processor shutting down | Uptime: %v | Messages processed: %d | Messages failed: %d",
+				uptime, lp.metrics.MessagesProcessed, lp.metrics.MessagesFailure)
 			return ctx.Err()
 		default:
 			if err := lp.processMessage(ctx); err != nil {
 				lp.metrics.MessagesFailure++
-				log.Printf("Error processing message: %v", err)
+				log.Printf("ERROR: Message processing failed (attempt %d): %v", lp.metrics.MessagesFailure, err)
+				lp.updateErrorRate()
+
+				// Log a warning if error rate is getting high
+				if lp.metrics.ErrorRate > 0.05 { // 5% error rate threshold
+					log.Printf("WARNING: High error rate detected: %.2f%% (%d failures out of %d total)",
+						lp.metrics.ErrorRate*100, lp.metrics.MessagesFailure, lp.metrics.MessagesProcessed+lp.metrics.MessagesFailure)
+				}
 				continue
 			}
 
 			lp.metrics.MessagesProcessed++
 			lp.metrics.LastProcessed = time.Now()
 			lp.updateErrorRate()
+			messageCount++
+
+			// Log throughput summary every 100 messages
+			if messageCount%100 == 0 {
+				uptime := time.Since(processingStartTime)
+				throughput := float64(messageCount) / uptime.Seconds()
+				log.Printf("THROUGHPUT: Processed %d messages in %v | Rate: %.2f msgs/sec | Error rate: %.2f%%",
+					messageCount, uptime, throughput, lp.metrics.ErrorRate*100)
+			}
 		}
 	}
 }
@@ -107,36 +128,62 @@ func (lp *LogProcessor) processMessage(ctx context.Context) error {
 
 	msg, err := lp.consumer.reader.ReadMessage(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read message from Kafka: %w", err)
 	}
+
+	// Generate correlation ID for this message
+	correlationID := fmt.Sprintf("msg_%d_%d_%d", msg.Partition, msg.Offset, time.Now().Unix())
+
+	log.Printf("[%s] Received message from partition %d at offset %d", correlationID, msg.Partition, msg.Offset)
 
 	// Parse the log message
 	var logEntry models.LogEntry
 	if err := json.Unmarshal(msg.Value, &logEntry); err != nil {
-		log.Printf("Error unmarshaling log entry: %v, raw message: %s", err, string(msg.Value))
-		return err
+		log.Printf("[%s] ERROR: Failed to unmarshal log entry: %v | Raw message: %s", correlationID, err, string(msg.Value))
+		return fmt.Errorf("unmarshaling failed: %w", err)
 	}
 
 	// Store raw message for debugging
 	logEntry.Raw = string(msg.Value)
 
+	log.Printf("[%s] INFO: Successfully parsed message | Level: %s | Service: %s | Message preview: %.100s",
+		correlationID, logEntry.Level, logEntry.Service, logEntry.Message)
+
 	// Parse JSON message field to extract nested fields (like service)
 	lp.parseMessageField(&logEntry)
 
+	log.Printf("[%s] INFO: After parsing nested fields | Level: %s | Service: %s | Message preview: %.100s",
+		correlationID, logEntry.Level, logEntry.Service, logEntry.Message)
+
 	// Validate log entry
 	if err := lp.validateLogEntry(&logEntry); err != nil {
-		log.Printf("Invalid log entry: %v", err)
-		return err
+		log.Printf("[%s] ERROR: Validation failed: %v | Entry details - Level: %s, Service: %s, Namespace: %s, Message length: %d",
+			correlationID, err, logEntry.Level, logEntry.Service, logEntry.GetNamespace(), len(logEntry.Message))
+		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	log.Printf("[%s] INFO: Validation passed | Namespace: %s | Level: %s | Service: %s",
+		correlationID, logEntry.GetNamespace(), logEntry.Level, logEntry.Service)
+
 	// Process through alert engine
+	alertStartTime := time.Now()
 	lp.alertEngine.EvaluateLog(logEntry)
+	alertProcessingTime := time.Since(alertStartTime)
 
 	// Update log statistics
 	lp.updateLogStats(logEntry)
 
 	// Update metrics
-	lp.metrics.ProcessingTime = time.Since(startTime)
+	totalProcessingTime := time.Since(startTime)
+	lp.metrics.ProcessingTime = totalProcessingTime
+
+	log.Printf("[%s] SUCCESS: Message processed successfully | Total time: %v | Alert evaluation time: %v | Stats updated",
+		correlationID, totalProcessingTime, alertProcessingTime)
+
+	// Log periodic summary every 50 successful messages
+	if lp.metrics.MessagesProcessed%50 == 0 {
+		lp.logProcessingSummary()
+	}
 
 	return nil
 }
@@ -250,6 +297,62 @@ func (lp *LogProcessor) updateLogStats(logEntry models.LogEntry) {
 			log.Printf("Error saving log stats: %v", err)
 		}
 	}
+}
+
+// logProcessingSummary logs a summary of processing statistics
+func (lp *LogProcessor) logProcessingSummary() {
+	errorRate := float64(0)
+	total := lp.metrics.MessagesProcessed + lp.metrics.MessagesFailure
+	if total > 0 {
+		errorRate = float64(lp.metrics.MessagesFailure) / float64(total) * 100
+	}
+
+	log.Printf("=== PROCESSING SUMMARY ===")
+	log.Printf("Messages processed: %d | Failed: %d | Error rate: %.2f%%",
+		lp.metrics.MessagesProcessed, lp.metrics.MessagesFailure, errorRate)
+	log.Printf("Total logs in stats: %d | Last processing time: %v",
+		lp.logStats.TotalLogs, lp.metrics.ProcessingTime)
+	log.Printf("Top 5 log levels: %v", lp.getTopLogLevels(5))
+	log.Printf("Top 5 services: %v", lp.getTopServices(5))
+	log.Printf("Last updated: %v", lp.logStats.LastUpdated.Format(time.RFC3339))
+}
+
+// getTopLogLevels returns the top N log levels by count
+func (lp *LogProcessor) getTopLogLevels(n int) map[string]int64 {
+	if len(lp.logStats.LogsByLevel) <= n {
+		return lp.logStats.LogsByLevel
+	}
+
+	// For simplicity, return first n items (could be enhanced with sorting)
+	result := make(map[string]int64)
+	count := 0
+	for level, cnt := range lp.logStats.LogsByLevel {
+		if count >= n {
+			break
+		}
+		result[level] = cnt
+		count++
+	}
+	return result
+}
+
+// getTopServices returns the top N services by log count
+func (lp *LogProcessor) getTopServices(n int) map[string]int64 {
+	if len(lp.logStats.LogsByService) <= n {
+		return lp.logStats.LogsByService
+	}
+
+	// For simplicity, return first n items (could be enhanced with sorting)
+	result := make(map[string]int64)
+	count := 0
+	for service, cnt := range lp.logStats.LogsByService {
+		if count >= n {
+			break
+		}
+		result[service] = cnt
+		count++
+	}
+	return result
 }
 
 // GetMetrics returns processor metrics
@@ -374,11 +477,39 @@ func (blp *BatchLogProcessor) flushBatch() {
 		return
 	}
 
-	log.Printf("Processing batch of %d messages", len(blp.batchBuffer))
+	batchStartTime := time.Now()
+	batchID := fmt.Sprintf("batch_%d_%d", time.Now().Unix(), len(blp.batchBuffer))
 
-	for _, logEntry := range blp.batchBuffer {
+	log.Printf("[%s] INFO: Starting batch processing | Messages: %d", batchID, len(blp.batchBuffer))
+
+	successCount := 0
+	errorCount := 0
+
+	for i, logEntry := range blp.batchBuffer {
+		correlationID := fmt.Sprintf("%s_msg_%d", batchID, i)
+
+		// Validate each log entry in batch
+		if err := blp.processor.validateLogEntry(&logEntry); err != nil {
+			log.Printf("[%s] ERROR: Batch validation failed: %v | Level: %s | Service: %s",
+				correlationID, err, logEntry.Level, logEntry.Service)
+			errorCount++
+			blp.processor.metrics.MessagesFailure++
+			continue
+		}
+
+		// Process through alert engine
+		alertStartTime := time.Now()
 		blp.processor.alertEngine.EvaluateLog(logEntry)
+		alertTime := time.Since(alertStartTime)
+
 		blp.processor.metrics.MessagesProcessed++
+		successCount++
+
+		// Log individual message success (less verbose for batches)
+		if i < 5 || i%10 == 0 { // Log first 5 and every 10th message
+			log.Printf("[%s] SUCCESS: Message processed | Alert time: %v | Level: %s | Service: %s",
+				correlationID, alertTime, logEntry.Level, logEntry.Service)
+		}
 	}
 
 	// Clear the buffer
@@ -390,6 +521,10 @@ func (blp *BatchLogProcessor) flushBatch() {
 	// Update metrics
 	blp.processor.metrics.LastProcessed = time.Now()
 	blp.processor.updateErrorRate()
+
+	batchTime := time.Since(batchStartTime)
+	log.Printf("[%s] SUCCESS: Batch completed | Total time: %v | Success: %d | Errors: %d | Rate: %.2f msgs/sec",
+		batchID, batchTime, successCount, errorCount, float64(successCount)/batchTime.Seconds())
 }
 
 // ProcessorFactory creates different types of processors
