@@ -49,9 +49,6 @@ data:
     log_processing:
       batch_size: 100          # Higher batch size for production
       flush_interval: "5s"     # Faster processing for production
-      retry_attempts: 3
-      retry_delay: "2s"
-      enable_metrics: true
       validation:
         default_log_level: "INFO"
 
@@ -116,31 +113,4 @@ data:
           default: "#808080"
 
     default_rules:
-      enabled: true
-      rules:
-        - id: "production-error-alert"
-          name: "Production - Application Error Alert"
-          description: "Alert on application errors in production"
-          enabled: true
-          conditions:
-            log_level: "ERROR"
-            threshold: 5         # Higher threshold for production
-            time_window: "5m"
-            operator: "gte"
-          actions:
-            channel: "#alerts"
-            severity: "high"
-
-        - id: "production-critical-namespace-alert"
-          name: "Production - Critical Namespace Alert"
-          description: "Alert on errors in critical namespaces"
-          enabled: true
-          conditions:
-            namespace: "kube-system|openshift-|default"  # Critical namespaces
-            log_level: "ERROR"
-            threshold: 3
-            time_window: "3m"
-            operator: "gte"
-          actions:
-            channel: "#alerts"
-            severity: "critical" 
+      enabled: false
