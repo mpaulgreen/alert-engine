@@ -303,6 +303,29 @@ validate_logging() {
         else
             log_warning "⚠️  ClusterLogForwarder status: $clf_status"
         fi
+        
+        # Check ClusterLogForwarder configuration for namespace filtering
+        log_info "Validating ClusterLogForwarder configuration..."
+        local has_filters=$(oc get clusterlogforwarder kafka-forwarder -n "$LOGGING_NAMESPACE" -o jsonpath='{.spec.filters}' 2>/dev/null)
+        local has_filter_refs=$(oc get clusterlogforwarder kafka-forwarder -n "$LOGGING_NAMESPACE" -o jsonpath='{.spec.pipelines[0].filterRefs}' 2>/dev/null)
+        
+        if [[ -n "$has_filters" && -n "$has_filter_refs" ]]; then
+            log_success "✅ ClusterLogForwarder has namespace filtering configured"
+            
+            # Verify the specific filter configuration
+            local filter_field=$(oc get clusterlogforwarder kafka-forwarder -n "$LOGGING_NAMESPACE" -o jsonpath='{.spec.filters[0].drop[0].test[0].field}' 2>/dev/null || echo "")
+            local filter_pattern=$(oc get clusterlogforwarder kafka-forwarder -n "$LOGGING_NAMESPACE" -o jsonpath='{.spec.filters[0].drop[0].test[0].notMatches}' 2>/dev/null || echo "")
+            
+            if [[ "$filter_field" == ".kubernetes.namespace_name" && "$filter_pattern" == "phase0-logs" ]]; then
+                log_success "✅ Namespace filter correctly configured for phase0-logs"
+            else
+                log_warning "⚠️  Namespace filter configuration may be incorrect"
+                log_info "   Expected: field=.kubernetes.namespace_name, notMatches=phase0-logs"
+                log_info "   Found: field=$filter_field, notMatches=$filter_pattern"
+            fi
+        else
+            log_warning "⚠️  ClusterLogForwarder missing namespace filtering (may forward all logs)"
+        fi
     else
         log_error "❌ ClusterLogForwarder not found"
         logging_status=1
@@ -333,30 +356,27 @@ validate_alert_engine() {
         alert_engine_status=1
     fi
     
-    # Check service account
+    # Check service account (optional - only needed for test application)
     if resource_exists serviceaccount alert-engine-sa "$ALERT_ENGINE_NAMESPACE"; then
         log_success "✅ Alert Engine service account exists"
     else
-        log_error "❌ Alert Engine service account not found"
-        alert_engine_status=1
+        log_info "ℹ️ Alert Engine service account not found (expected if test app disabled)"
     fi
     
-    # Check ClusterRole and ClusterRoleBinding
+    # Check ClusterRole and ClusterRoleBinding (optional - only needed for test application)
     if resource_exists clusterrole alert-engine-role; then
         log_success "✅ Alert Engine ClusterRole exists"
     else
-        log_error "❌ Alert Engine ClusterRole not found"
-        alert_engine_status=1
+        log_info "ℹ️ Alert Engine ClusterRole not found (expected if test app disabled)"
     fi
     
     if resource_exists clusterrolebinding alert-engine-binding; then
         log_success "✅ Alert Engine ClusterRoleBinding exists"
     else
-        log_error "❌ Alert Engine ClusterRoleBinding not found"
-        alert_engine_status=1
+        log_info "ℹ️ Alert Engine ClusterRoleBinding not found (expected if test app disabled)"
     fi
     
-    # Check test log generator
+    # Check test log generator (optional)
     if resource_exists deployment continuous-log-generator "$ALERT_ENGINE_NAMESPACE"; then
         local log_gen_pods=$(oc get pods -l app=continuous-log-generator -n "$ALERT_ENGINE_NAMESPACE" --no-headers 2>/dev/null | grep -c Running || echo 0)
         if [[ $log_gen_pods -gt 0 ]]; then
@@ -365,7 +385,7 @@ validate_alert_engine() {
             log_warning "⚠️  Continuous log generator not running"
         fi
     else
-        log_warning "⚠️  Continuous log generator deployment not found"
+        log_info "ℹ️ Continuous log generator deployment not found (expected if test app disabled)"
     fi
     
     return $alert_engine_status
@@ -375,18 +395,35 @@ validate_alert_engine() {
 test_e2e_connectivity() {
     log_step "TESTING END-TO-END CONNECTIVITY"
     
-    log_info "Testing complete pipeline: Log Generator → Vector → Kafka → Alert Engine"
+    log_info "Testing complete pipeline: Log Generator → Vector (with namespace filtering) → Kafka → Alert Engine"
     
     # Check if logs are flowing to Kafka
     log_info "Checking for logs in Kafka topic 'application-logs'..."
-    local kafka_logs=$(oc exec -n "$KAFKA_NAMESPACE" alert-kafka-cluster-kafka-0 -- timeout 10 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 3 2>/dev/null || echo "")
+    local kafka_logs=$(oc exec -n "$KAFKA_NAMESPACE" alert-kafka-cluster-kafka-0 -- timeout 10 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --from-beginning --max-messages 5 2>/dev/null || echo "")
     
     if [[ -n "$kafka_logs" ]]; then
         log_success "✅ Logs are flowing to Kafka topic"
         
-        # Show sample logs
+        # Show sample logs and check namespace filtering
         echo -e "${BLUE}Sample logs from Kafka:${NC}"
         echo "$kafka_logs" | head -3
+        
+        # Verify namespace filtering is working
+        log_info "Validating namespace filtering effectiveness..."
+        local phase0_logs=$(echo "$kafka_logs" | grep -c "phase0-logs" || echo "0")
+        local alert_engine_logs=$(echo "$kafka_logs" | grep -c "alert-engine" || echo "0")
+        
+        if [[ $phase0_logs -gt 0 ]]; then
+            log_success "✅ Found $phase0_logs logs from phase0-logs namespace (filtering working correctly)"
+        else
+            log_info "ℹ️ No phase0-logs namespace logs found yet (may be expected if no phase0 applications are running)"
+        fi
+        
+        if [[ $alert_engine_logs -gt 0 ]]; then
+            log_warning "⚠️ Found $alert_engine_logs logs from alert-engine namespace (filtering may not be working as expected)"
+        else
+            log_success "✅ No alert-engine namespace logs found (namespace filtering working correctly)"
+        fi
     else
         log_warning "⚠️  No logs found in Kafka topic (logs may still be processing)"
     fi
@@ -398,6 +435,7 @@ test_e2e_connectivity() {
     echo "Redis Cluster: redis-cluster-access.$REDIS_NAMESPACE.svc.cluster.local:6379"
     echo "Alert Engine Namespace: $ALERT_ENGINE_NAMESPACE"
     echo "Service Account: alert-engine-sa"
+    echo "Log Filtering: Only phase0-logs namespace logs are forwarded to Kafka"
 }
 
 # Generate connection configuration
@@ -406,6 +444,7 @@ generate_config() {
     
     cat <<EOF
 # Sample config.yaml for Alert Engine deployment
+# Note: ClusterLogForwarder is configured to only forward logs from phase0-logs namespace
 kafka:
   brokers: ["alert-kafka-cluster-kafka-bootstrap.$KAFKA_NAMESPACE.svc.cluster.local:9092"]
   topic: "application-logs"

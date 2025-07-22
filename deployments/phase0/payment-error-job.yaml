@@ -1,0 +1,153 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: phase0-logs
+  labels:
+    test.phase: "phase0"
+    test.purpose: "payment-error-validation"
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: payment-error-generator
+  namespace: phase0-logs
+  labels:
+    app: payment-error-generator
+    test.phase: "phase0"
+spec:
+  # Run every 2 minutes for testing
+  schedule: "*/2 * * * *"
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: payment-error-generator
+            job: payment-error-logs
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: payment-error-generator
+            image: python:3.9-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              cat > /tmp/generate_errors.py << 'EOF'
+              #!/usr/bin/env python3
+              import json
+              import sys
+              import random
+              from datetime import datetime
+              import os
+
+              # Get pod metadata
+              namespace = os.getenv('POD_NAMESPACE', 'phase0-logs')
+              pod_name = os.getenv('POD_NAME', 'payment-error-generator')
+              node_name = os.getenv('NODE_NAME', 'unknown-node')
+
+              # Fixed 5 payment error messages matching the provided structure
+              error_messages = [
+                  "Payment process failed: credit card declined for order #12345",
+                  "Payment process failed: insufficient funds for order #23456", 
+                  "Payment process failed: payment gateway timeout for order #34567",
+                  "Payment process failed: invalid payment method for order #45678",
+                  "Payment process failed: authorization failed for order #56789"
+              ]
+
+              for i, message in enumerate(error_messages, 1):
+                  timestamp = datetime.utcnow()
+                  timestamp_str = timestamp.isoformat() + "Z"
+                  
+                  # Generate dynamic values matching the provided structure
+                  order_id = 10000 + random.randint(1, 99999)
+                  pod_suffix = f"{random.randint(10000,99999)}-{'abc' if i % 2 == 0 else 'def'}"
+                  container_id = f"cri-o://{random.randint(100000000000, 999999999999):012x}"
+                  pod_ip = f"10.{random.randint(100,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+                  revision = random.randint(1, 10)
+                  
+                  log_entry = {
+                      "timestamp": timestamp_str,
+                      "@timestamp": timestamp_str,
+                      "level": "ERROR",
+                      "message": message,
+                      "service": "payment-service",
+                      "namespace": namespace,
+                      "namespace_name": namespace,
+                      "host": node_name,
+                      "hostname": node_name,
+                      "log_source": "application",
+                      "log_type": "structured",
+                      "kubernetes": {
+                          "namespace": namespace,
+                          "namespace_name": namespace,
+                          "pod": f"payment-service-{pod_suffix}",
+                          "pod_name": f"payment-service-{pod_suffix}",
+                          "container": "payment-service",
+                          "container_name": "payment-service",
+                          "labels": {
+                              "app": "payment-service",
+                              "version": "v2.1.4",
+                              "environment": "phase0-logs",
+                              "component": "payment",
+                              "generated-by": "payment-error-generator"
+                          },
+                          "annotations": {
+                              "deployment.kubernetes.io/revision": str(revision),
+                              "kubectl.kubernetes.io/last-applied-configuration": "{...}",
+                              "openshift.io/generated-by": "OpenShiftNewApp"
+                          },
+                          "container_id": container_id,
+                          "pod_ip": pod_ip,
+                          "pod_owner": f"ReplicaSet/payment-service-{random.randint(10000000, 99999999):08x}"
+                      },
+                      "raw": json.dumps({
+                          "timestamp": timestamp_str,
+                          "level": "ERROR", 
+                          "message": message,
+                          "service": "payment-service"
+                      }, separators=(',', ':'))
+                  }
+                  
+                  # Output to stdout for Vector/ClusterLogForwarder collection
+                  print(json.dumps(log_entry, separators=(',', ':')))
+
+              EOF
+
+              python3 /tmp/generate_errors.py
+            env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            resources:
+              requests:
+                cpu: 50m
+                memory: 32Mi
+              limits:
+                cpu: 100m
+                memory: 64Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: false
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault 

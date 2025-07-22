@@ -218,6 +218,15 @@ check_prerequisites() {
     # Auto-detect storage class
     auto_detect_storage_class
     
+    # Ensure alert-engine namespace exists early
+    log_info "Creating alert-engine namespace if it doesn't exist..."
+    if ! resource_exists namespace "$ALERT_ENGINE_NAMESPACE"; then
+        oc create namespace "$ALERT_ENGINE_NAMESPACE"
+        log_success "Created namespace: $ALERT_ENGINE_NAMESPACE"
+    else
+        log_success "Namespace $ALERT_ENGINE_NAMESPACE already exists"
+    fi
+    
     log_success "Prerequisites check completed"
     log_info "Using storage class: $STORAGE_CLASS"
     log_info "Current user: $(oc whoami)"
@@ -877,7 +886,7 @@ EOF
     log_success "Service account and RBAC created"
     
     # 3.4: Deploy ClusterLogForwarder
-    log_info "3.4: Deploying ClusterLogForwarder..."
+    log_info "3.4: Deploying ClusterLogForwarder with namespace filtering..."
     
     cat <<EOF | oc apply -f -
 apiVersion: observability.openshift.io/v1
@@ -888,18 +897,29 @@ metadata:
 spec:
   outputs:
   - kafka:
+      # CRITICAL: Use tcp:// prefix (RedHat fix)
       brokers:
       - tcp://alert-kafka-cluster-kafka-bootstrap.$KAFKA_NAMESPACE.svc.cluster.local:9092
       topic: application-logs
       tuning:
         compression: snappy
+        # CRITICAL: Use deliveryMode instead of delivery (RedHat fix)
         deliveryMode: AtLeastOnce
     name: kafka-output
     type: kafka
+  filters:
+  - name: namespace-filter
+    type: "drop"
+    drop:
+    - test:
+      - field: .kubernetes.namespace_name
+        notMatches: "phase0-logs"
   pipelines:
   - inputRefs:
     - application
     name: application-logs
+    filterRefs:
+    - namespace-filter
     outputRefs:
     - kafka-output
   serviceAccount:
@@ -911,11 +931,13 @@ EOF
     # Wait for ClusterLogForwarder to be processed
     sleep 30
     
-    # 3.5: Deploy Test Application
-    log_info "3.5: Deploying test application for end-to-end validation..."
-    
-    # Create service account for alert-engine
-    cat <<EOF | oc apply -f -
+    # 3.5: Deploy Test Application - DISABLED
+    # Disable test application deployment for end-to-end validation
+    if false; then
+        log_info "3.5: Deploying test application for end-to-end validation..."
+        
+        # Create service account for alert-engine
+        cat <<EOF | oc apply -f -
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -947,9 +969,9 @@ subjects:
   name: alert-engine-sa
   namespace: $ALERT_ENGINE_NAMESPACE
 EOF
-    
-    # Create continuous log generator deployment
-    cat <<EOF | oc apply -f -
+        
+        # Create continuous log generator deployment
+        cat <<EOF | oc apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1026,44 +1048,54 @@ spec:
             memory: "64Mi"
             cpu: "100m"
 EOF
-    
-    # Wait for deployment to be ready
-    wait_for_condition deployment continuous-log-generator "$ALERT_ENGINE_NAMESPACE" Available 300
-    
-    log_success "Test application deployed"
-    
-    # 3.6: Execute End-to-End Validation with enhanced verification
-    log_info "3.6: Executing end-to-end validation..."
-    
-    log_info "Waiting 90 seconds for Vector to process and forward logs to Kafka..."
-    sleep 90
-    
-    # Check for logs in Kafka with multiple attempts
-    log_info "Checking Kafka consumer for alert-engine logs..."
-    local validation_success=false
-    
-    for attempt in {1..5}; do
-        log_info "End-to-end validation attempt $attempt/5"
         
-        local log_output=$(oc exec -n "$KAFKA_NAMESPACE" alert-kafka-cluster-kafka-0 -- timeout 20 bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --max-messages 10 2>/dev/null || true)
+        # Wait for deployment to be ready
+        wait_for_condition deployment continuous-log-generator "$ALERT_ENGINE_NAMESPACE" Available 300
         
-        if [[ $log_output == *"alert-engine"* ]] || [[ $log_output == *"continuous-log-generator"* ]] || [[ $log_output == *"kubernetes"* ]]; then
-            log_success "End-to-end validation successful - logs are flowing to Kafka"
-            log_info "Sample log: $(echo "$log_output" | head -n1)"
-            validation_success=true
-            break
-        else
-            log_warning "Attempt $attempt: No logs detected yet, waiting 30s..."
-            sleep 30
-        fi
-    done
-    
-    if [ "$validation_success" != true ]; then
-        log_warning "End-to-end validation: logs may still be processing or there might be a configuration issue"
-        log_info "You can manually check logs later with: oc exec -n $KAFKA_NAMESPACE alert-kafka-cluster-kafka-0 -- bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic application-logs --max-messages 5"
+        log_success "Test application deployed"
     fi
     
-    log_success "OpenShift Logging and Log Forwarding setup completed"
+    # 3.6: Validate ClusterLogForwarder Configuration
+    log_info "3.6: Validating ClusterLogForwarder deployment and configuration..."
+    
+    # Wait for ClusterLogForwarder to be processed and Vector pods to start
+    log_info "Waiting 60 seconds for Vector to start processing the new configuration..."
+    sleep 60
+    
+    # Validate ClusterLogForwarder configuration instead of looking for specific logs
+    log_info "Checking ClusterLogForwarder configuration and status..."
+    
+    # Check if ClusterLogForwarder is valid
+    local clf_status=$(oc get clusterlogforwarder kafka-forwarder -n "$LOGGING_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="observability.openshift.io/Valid")].status}' 2>/dev/null || echo "Unknown")
+    
+    if [[ "$clf_status" == "True" ]]; then
+        log_success "✅ ClusterLogForwarder is valid and configured"
+        
+        # Check for namespace filtering configuration
+        local has_filters=$(oc get clusterlogforwarder kafka-forwarder -n "$LOGGING_NAMESPACE" -o jsonpath='{.spec.filters}' 2>/dev/null)
+        if [[ -n "$has_filters" ]]; then
+            log_success "✅ Namespace filtering is configured - only phase0-logs will be forwarded"
+        else
+            log_warning "⚠️ No namespace filtering detected - all application logs will be forwarded"
+        fi
+        
+        # Check Vector pods are running
+        local vector_pods=$(oc get pods -A -l app.kubernetes.io/component=collector --no-headers 2>/dev/null | grep -c Running || echo 0)
+        if [[ $vector_pods -gt 0 ]]; then
+            log_success "✅ Vector log collector pods are running ($vector_pods pods)"
+        else
+            log_warning "⚠️ Vector log collector pods not found - log forwarding may not be active"
+        fi
+        
+        log_success "✅ ClusterLogForwarder configuration validation completed"
+        log_info "Note: Only logs from phase0-logs namespace will be forwarded to Kafka"
+        log_info "To test log forwarding, deploy applications in phase0-logs namespace"
+    else
+        log_warning "⚠️ ClusterLogForwarder status: $clf_status - configuration may need time to be processed"
+        log_info "You can check status later with: oc get clusterlogforwarder kafka-forwarder -n $LOGGING_NAMESPACE -o yaml"
+    fi
+    
+    log_success "OpenShift Logging and Log Forwarding setup completed with namespace filtering"
 }
 
 # Final validation with comprehensive checks
@@ -1122,14 +1154,15 @@ final_validation() {
         all_checks_passed=false
     fi
     
-    # Test application verification
-    local test_app_ready=$(oc get deployment continuous-log-generator -n "$ALERT_ENGINE_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-    if [[ "$test_app_ready" -eq 1 ]]; then
-        log_success "✅ Test application running"
-    else
-        log_error "❌ Test application not ready"
-        all_checks_passed=false
-    fi
+    # Test application verification - DISABLED since test app deployment was disabled
+    # local test_app_ready=$(oc get deployment continuous-log-generator -n "$ALERT_ENGINE_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    # if [[ "$test_app_ready" -eq 1 ]]; then
+    #     log_success "✅ Test application running"
+    # else
+    #     log_error "❌ Test application not ready"
+    #     all_checks_passed=false
+    # fi
+    log_info "ℹ️ Test application deployment disabled - skipping verification"
     
     # Network policies verification
     local kafka_netpol=$(oc get networkpolicy kafka-network-policy -n "$KAFKA_NAMESPACE" 2>/dev/null && echo "True" || echo "False")
@@ -1138,7 +1171,7 @@ final_validation() {
     if [[ "$kafka_netpol" == "True" && "$redis_netpol" == "True" ]]; then
         log_success "✅ Network policies configured"
     else
-        log_warning "⚠️ Some network policies missing"
+        log_warning "⚠️ Some network policies missing (expected since test app is disabled)"
     fi
     
     # Summary

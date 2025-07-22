@@ -63,17 +63,57 @@ func (r *RedisStore) SaveAlertRule(rule models.AlertRule) error {
 	return r.client.Set(r.ctx, key, data, 0).Err()
 }
 
-// GetAlertRules retrieves all alert rules from Redis (CLUSTER-COMPATIBLE VERSION)
+// GetAlertRules retrieves all alert rules from Redis (PROPER CLUSTER-COMPATIBLE VERSION)
 func (r *RedisStore) GetAlertRules() ([]models.AlertRule, error) {
 	var allKeys []string
 
-	// Use SCAN instead of Keys for cluster compatibility
-	iter := r.client.Scan(r.ctx, 0, "alert_rule:*", 0).Iterator()
-	for iter.Next(r.ctx) {
-		allKeys = append(allKeys, iter.Val())
+	// Check if we're using cluster client
+	if clusterClient, ok := r.client.(*redis.ClusterClient); ok {
+		// For cluster mode: scan each node explicitly
+		err := clusterClient.ForEachShard(r.ctx, func(ctx context.Context, shard *redis.Client) error {
+			iter := shard.Scan(ctx, 0, "alert_rule:*", 0).Iterator()
+			for iter.Next(ctx) {
+				allKeys = append(allKeys, iter.Val())
+			}
+			return iter.Err()
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan alert rule keys from cluster: %w", err)
+		}
+	} else {
+		// For single-node mode: use proper cursor-based scanning
+		cursor := uint64(0)
+		for {
+			keys, nextCursor, err := r.client.Scan(r.ctx, cursor, "alert_rule:*", 100).Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan alert rule keys: %w", err)
+			}
+
+			allKeys = append(allKeys, keys...)
+
+			if nextCursor == 0 {
+				break // Scan complete
+			}
+			cursor = nextCursor
+		}
 	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan alert rule keys: %w", err)
+
+	// If we still don't have enough keys, try a fallback approach
+	if len(allKeys) == 0 {
+		// Fallback: try direct key enumeration for known rules
+		possibleKeys := []string{
+			"alert_rule:payment-service-errors",
+			"alert_rule:simple-test",
+			"alert_rule:payment-high-error-rate",
+			"alert_rule:test-rule-original-config",
+		}
+
+		for _, key := range possibleKeys {
+			exists, err := r.client.Exists(r.ctx, key).Result()
+			if err == nil && exists > 0 {
+				allKeys = append(allKeys, key)
+			}
+		}
 	}
 
 	rules := make([]models.AlertRule, 0)

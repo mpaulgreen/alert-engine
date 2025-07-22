@@ -1,9 +1,0 @@
-# Mock Log Generator Dependencies
-# No Kafka dependencies needed - logs output to stdout for Vector/ClusterLogForwarder collection
-
-# Core Python packages (minimal dependencies)
-requests>=2.31.0
-pyyaml>=6.0.1
-
-# Optional: For enhanced logging/monitoring if needed
-# psutil>=5.9.0  # For system monitoring if needed in future 
