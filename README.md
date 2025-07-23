@@ -243,153 +243,43 @@ For comprehensive API documentation including endpoints, request/response format
 
 **📋 [API Documentation](internal/api/README.md)** - Complete REST API documentation with detailed endpoint specifications, authentication, and integration examples.
 
-## 🚢 OpenShift Deployment
+## 🚢 Getting started on Phase 1
 
-The Alert Engine provides production-ready OpenShift deployment manifests with comprehensive testing capabilities through mock log generation.
-
-### 🎯 Deployment Components
-
-#### **Alert Engine Production Deployment**
-**📁 Location**: [`deployments/alert-engine/`](deployments/alert-engine/)
-
-Production-ready deployment with complete Kubernetes manifests:
-
-- **Container Build System**: Automated build scripts using Red Hat UBI8 base images
-- **Security Hardened**: Non-root containers, NetworkPolicies, minimal RBAC permissions
-- **High Availability**: Multi-replica deployment with anti-affinity rules and rolling updates
-- **Full Integration**: Redis cluster, Kafka (AMQ Streams), and Slack webhook support
-- **Monitoring Ready**: Health checks, Prometheus metrics, and comprehensive logging
-
-**Key Features:**
-- ✅ **Production Scale**: Optimized for cluster-wide log processing with configurable thresholds
-- ✅ **Zero Downtime**: Rolling updates and readiness/liveness probes
-- ✅ **Security Compliance**: OpenShift security constraints and network isolation
-- ✅ **Resource Management**: Conservative resource requests with horizontal scaling support
-
-#### **MockLogGenerator Testing Deployment**
-**📁 Location**: [`deployments/mock/`](deployments/mock/)
-
-Comprehensive log simulation for Alert Engine testing:
-
-- **Realistic Log Patterns**: Generates 19 different alert patterns including payment failures, authentication errors, and database issues
-- **OpenShift Integration**: Uses ClusterLogForwarder (Vector) to route logs through standard OpenShift logging pipeline
-- **Flexible Modes**: Test mode for E2E validation and continuous mode for ongoing simulation
-- **Pattern Coverage**: Supports all alert rule types with configurable generation rates and burst patterns
-
-**Key Features:**
-- ✅ **E2E Test Compatibility**: Optimized for automated testing with specific service/log level combinations
-- ✅ **Production Simulation**: Realistic log volume and patterns for production-like testing
-- ✅ **Standard Log Flow**: Outputs to stdout → Vector → Kafka → Alert Engine pipeline
-- ✅ **Configurable Patterns**: Adjustable log generation intervals and alert pattern frequency
-
-### 🚀 Quick Deployment Guide
-
-#### Prerequisites
-1. **Complete Infrastructure Setup**: Follow the [Infrastructure Setup Guide](alert_engine_infra_setup.md)
-2. **Required Components**: AMQ Streams Kafka, Redis Enterprise, OpenShift Logging with ClusterLogForwarder
-3. **Slack Webhook**: Configured webhook URL for alert notifications
-
-#### Production Alert Engine Deployment
-
-```bash
-# 1. Build and push container image
-cd alert-engine/deployments/alert-engine
-./build.sh --version v1.0.0 --push
-
-# 2. Configure Slack webhook
-oc create secret generic alert-engine-secrets \
-  --from-literal=slack-webhook-url="https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
-  --namespace=alert-engine
-
-# 3. Deploy all components
-oc apply -k .
-
-# 4. Verify deployment
-oc get pods -n alert-engine
-oc logs -n alert-engine deployment/alert-engine -f
+- The Alert Engine is complete for Phase0. Run the following commands to get started
 ```
-
-#### MockLogGenerator Test Deployment
-
-```bash
-# 1. Build and push mock container
-cd alert-engine/deployments/mock
-podman build --platform linux/amd64 -t quay.io/your-registry/mock-log-generator:latest .
-podman push quay.io/your-registry/mock-log-generator:latest
-
-# 2. Update image reference in deployment.yaml
-# 3. Deploy mock log generator
-oc create namespace mock-logs
-oc apply -f .
-
-# 4. Verify log generation
-oc logs -n mock-logs -l app=mock-log-generator -f
+make infra-setup
+make infra-validate
+make test-all
+oc apply -f deployments/phase0/payment-error-job.yaml
+make build-and-deploy
+make logs
+make health
 ```
-
-### 🔍 Verification & Testing
-
-#### End-to-End Log Flow Verification
-
-```bash
-# 1. Check infrastructure status
-oc get kafka alert-kafka-cluster -n alert-engine
-oc get pods -n openshift-logging -l component=vector
-
-# 2. Verify log generation and forwarding
-oc logs -n mock-logs -l app=mock-log-generator --tail=10
-oc exec -n alert-engine alert-kafka-cluster-kafka-0 -- \
-  /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server localhost:9092 \
-  --topic application-logs --max-messages 5
-
-# 3. Test Alert Engine processing
-ROUTE_URL=$(oc get route alert-engine -n alert-engine -o jsonpath='{.spec.host}')
-curl -s "https://$ROUTE_URL/api/v1/system/logs/stats" | jq '.'
+- set an alert rule
 ```
-
-#### Safe Alert Rule Testing
-
-```bash
-# Create conservative test rule to avoid Slack rate limiting
-curl -X POST "https://$ROUTE_URL/api/v1/rules" \
+curl -s -X POST "http://localhost:8080/api/v1/rules" \
   -H "Content-Type: application/json" \
   -d '{
-    "id": "test-verification-rule",
-    "name": "🧪 Deployment Verification",
-    "description": "Safe test rule for deployment verification",
+    "id": "perfect-payment-alert",
+    "name": "Perfect Payment Alert", 
+    "description": "Exactly matches current payment logs",
     "enabled": true,
     "conditions": {
-      "log_level": "ERROR",
-      "service": "test-service-verification",
+      "log_level": "error",
+      "namespace": "phase0-logs",
+      "service": "payment-service",
+      "keywords": ["Payment", "failed"],
       "threshold": 1,
-      "time_window": 3600,
+      "time_window": 60000000000,
       "operator": "gte"
     },
     "actions": {
-      "channel": "#test-alerts",
-      "severity": "low"
+      "slack_webhook": "https://hooks.slack.com/services/YOUR_WEBHOOK_URL",
+      "channel": "#alert-channel", # Your own channel
+      "severity": "high"
     }
   }'
 ```
-
-### 📊 Production Features
-
-- **High Availability**: Multi-replica deployment with pod anti-affinity
-- **Monitoring Integration**: Prometheus metrics and OpenShift monitoring
-- **Security Hardening**: NetworkPolicies, minimal RBAC, non-root containers
-- **Resource Management**: Configurable CPU/memory limits with horizontal scaling
-- **Zero Downtime Updates**: Rolling deployment strategy with health checks
-
-### 🔧 Customization & Scaling
-
-- **Log Generation Rate**: Adjustable via MockLogGenerator ConfigMap
-- **Alert Thresholds**: Configurable per-rule via Alert Engine ConfigMap
-- **Resource Scaling**: Horizontal pod autoscaling support
-- **Network Security**: Customizable NetworkPolicies for environment-specific requirements
-
-For detailed deployment instructions, troubleshooting, and advanced configuration, refer to:
-- **🚀 [Alert Engine Deployment Guide](deployments/alert-engine/README.md)** - Complete production deployment documentation
-- **🧪 [MockLogGenerator Guide](deployments/mock/README.md)** - Comprehensive testing and log simulation setup
 
 
 
