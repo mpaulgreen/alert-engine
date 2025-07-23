@@ -170,29 +170,6 @@ test-e2e-local: build ## Run local end-to-end tests (teardown, setup, start serv
 	@rm -f /tmp/alert-engine-e2e.pid /tmp/alert-engine-e2e.log
 	@echo "$(GREEN)Local e2e test suite completed!$(NC)"
 
-.PHONY: test-e2e-local-setup
-test-e2e-local-setup: ## Set up local e2e environment (teardown + setup)
-	@echo "$(BLUE)Setting up local e2e environment...$(NC)"
-	./local_e2e/setup/teardown_local_e2e.sh
-	./local_e2e/setup/setup_local_e2e.sh
-	@echo "$(GREEN)Local e2e environment ready!$(NC)"
-
-.PHONY: test-e2e-local-server
-test-e2e-local-server: ## Start alert engine server for local e2e testing
-	@echo "$(BLUE)Starting alert engine server for local e2e testing...$(NC)"
-	./local_e2e/setup/start_alert_engine.sh
-
-.PHONY: test-e2e-local-run
-test-e2e-local-run: ## Run local e2e tests (assumes server is already running)
-	@echo "$(BLUE)Running local e2e tests...$(NC)"
-	./local_e2e/tests/run_e2e_tests.sh
-
-.PHONY: test-e2e-local-teardown
-test-e2e-local-teardown: ## Tear down local e2e environment
-	@echo "$(BLUE)Tearing down local e2e environment...$(NC)"
-	./local_e2e/setup/teardown_local_e2e.sh
-	@echo "$(GREEN)Local e2e environment cleaned up!$(NC)"
-
 ##@ Building
 
 .PHONY: build
@@ -225,21 +202,6 @@ docker-test: ## Build container image with tests
 	@echo "$(BLUE)Building container image with tests...$(NC)"
 	./deployments/alert-engine/build.sh --version $(VERSION) --registry $(REGISTRY) --test
 
-.PHONY: mock-build
-mock-build: ## Build mock log generator container image
-	@echo "$(BLUE)Building mock log generator container image...$(NC)"
-	./deployments/mock/build.sh --tag $(VERSION) --registry $(REGISTRY)
-
-.PHONY: mock-push
-mock-push: ## Build and push mock log generator container image
-	@echo "$(BLUE)Building and pushing mock log generator container image...$(NC)"
-	./deployments/mock/build.sh --tag $(VERSION) --registry $(REGISTRY) --push
-
-.PHONY: mock-dry-run
-mock-dry-run: ## Show mock log generator build commands without executing
-	@echo "$(BLUE)Mock log generator build dry run...$(NC)"
-	./deployments/mock/build.sh --tag $(VERSION) --registry $(REGISTRY) --dry-run
-
 ##@ OpenShift Deployment
 
 .PHONY: deploy
@@ -247,25 +209,8 @@ deploy: ## Deploy to OpenShift/Kubernetes
 	@echo "$(BLUE)Deploying Alert Engine...$(NC)"
 	oc apply -k deployments/alert-engine/
 
-.PHONY: deploy-with-image
-deploy-with-image: ## Deploy with custom image (use: make deploy-with-image VERSION=tag REGISTRY=registry)
-	@echo "$(BLUE)Deploying Alert Engine with custom image...$(NC)"
-	@echo "$(YELLOW)Image: $(REGISTRY)/$(IMAGE_NAME):$(VERSION)$(NC)"
-	@cd deployments/alert-engine && \
-	if command -v yq >/dev/null 2>&1; then \
-		echo "$(BLUE)Updating kustomization.yaml with yq...$(NC)"; \
-		yq eval '.images[0].newTag = "$(VERSION)"' -i kustomization.yaml; \
-		yq eval '.images[0].name = "$(REGISTRY)/$(IMAGE_NAME)"' -i kustomization.yaml; \
-	else \
-		echo "$(BLUE)Updating kustomization.yaml with sed...$(NC)"; \
-		sed -i.bak 's/newTag: .*/newTag: $(VERSION)/' kustomization.yaml; \
-		sed -i.bak 's|name: .*/.*|name: $(REGISTRY)/$(IMAGE_NAME)|' kustomization.yaml; \
-	fi
-	oc apply -k deployments/alert-engine/
-	@echo "$(GREEN)Deployment completed with image: $(REGISTRY)/$(IMAGE_NAME):$(VERSION)$(NC)"
-
 .PHONY: build-and-deploy
-build-and-deploy: docker-push deploy-with-image ## Build, push, and deploy with custom image
+build-and-deploy: docker-push deploy ## Build, push, and deploy with custom image
 	@echo "$(GREEN)Build and deployment pipeline completed!$(NC)"
 
 .PHONY: logs
