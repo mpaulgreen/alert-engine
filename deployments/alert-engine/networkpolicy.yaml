@@ -1,0 +1,99 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alert-engine-network-policy
+  namespace: alert-engine
+  labels:
+    app.kubernetes.io/name: alert-engine
+    app.kubernetes.io/component: network-security
+    app.kubernetes.io/part-of: log-monitoring-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: alert-engine
+      app.kubernetes.io/component: application
+  
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  ingress:
+    # Allow traffic from OpenShift routers (for external access)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: openshift-ingress
+      ports:
+        - protocol: TCP
+          port: 8080
+    
+    # Allow traffic from prometheus (for metrics scraping)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: openshift-monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+    
+    # Allow traffic from same namespace (for internal communication)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: alert-engine
+      ports:
+        - protocol: TCP
+          port: 8080
+  
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: openshift-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    
+    # Allow access to Kafka cluster
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: amq-streams-kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+    
+    # Allow access to Redis cluster
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: redis-cluster
+      ports:
+        - protocol: TCP
+          port: 6379
+    
+    # Allow HTTPS traffic for Slack webhooks
+    - to: []  # Allow to any destination
+      ports:
+        - protocol: TCP
+          port: 443
+    
+    # Allow HTTP traffic for external services
+    - to: []  # Allow to any destination
+      ports:
+        - protocol: TCP
+          port: 80
+    
+    # Allow Kubernetes API access
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: default
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443 

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: alert-engine
+  labels:
+    app.kubernetes.io/name: alert-engine
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: log-monitoring-platform
+  annotations:
+    description: "Alert Engine namespace for log monitoring and alerting"
+    openshift.io/display-name: "Alert Engine" 

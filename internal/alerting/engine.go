@@ -152,9 +152,14 @@ func (e *Engine) matchesConditions(logEntry models.LogEntry, conditions models.A
 		return false
 	}
 
-	// Check service (from Kubernetes labels)
+	// Check service (check both top-level service field and Kubernetes app label)
 	if conditions.Service != "" {
-		if appLabel, exists := logEntry.Kubernetes.Labels["app"]; !exists || appLabel != conditions.Service {
+		// First check top-level service field
+		if logEntry.Service != "" && logEntry.Service == conditions.Service {
+			// Service matches top-level field
+		} else if appLabel, exists := logEntry.Kubernetes.Labels["app"]; exists && appLabel == conditions.Service {
+			// Service matches Kubernetes app label
+		} else {
 			return false
 		}
 	}
@@ -243,9 +248,15 @@ func (e *Engine) buildAlertMessage(rule models.AlertRule, logEntry models.LogEnt
 
 // getServiceName extracts service name from log entry
 func (e *Engine) getServiceName(logEntry models.LogEntry) string {
+	// First check top-level service field
+	if logEntry.Service != "" {
+		return logEntry.Service
+	}
+	// Fallback to Kubernetes app label
 	if appLabel, exists := logEntry.Kubernetes.Labels["app"]; exists {
 		return appLabel
 	}
+	// Fallback to Kubernetes service label
 	if serviceLabel, exists := logEntry.Kubernetes.Labels["service"]; exists {
 		return serviceLabel
 	}

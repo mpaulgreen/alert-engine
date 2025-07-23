@@ -1,0 +1,103 @@
+# .dockerignore for Alert Engine
+# Optimize Docker build context by excluding unnecessary files
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# Build artifacts (exclude from context, will be built inside container)
+alert-engine
+main
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+coverage.out
+coverage.html
+*.test
+
+# Documentation (not needed for runtime)
+*.md
+docs/
+README*
+CHANGELOG*
+LICENSE*
+
+# Deployment files (not needed in container)
+deployments/
+manifests/
+k8s/
+helm/
+
+# Local development
+.env
+.env.local
+*.env
+
+# Logs
+*.log
+logs/
+
+# Local scripts and utilities
+scripts/
+tools/
+hack/
+
+# Test data and fixtures that aren't needed at runtime
+testdata/
+test/
+tests/
+*_test.go
+fixtures/
+mock*/
+
+# Local E2E testing
+local_e2e/
+
+# Cache directories
+.cache/
+node_modules/
+vendor/ (if using vendoring)
+
+# Binary dependencies
+bin/
+
+# Configuration files that shouldn't be in the image
+config.local.yaml
+config.dev.yaml
+*.local.yaml
+
+# Docker related
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Package manager files (handled separately in multi-stage build)
+# Keep go.mod and go.sum for dependency download 

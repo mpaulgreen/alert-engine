@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-engine-config
+  namespace: alert-engine
+  labels:
+    app.kubernetes.io/name: alert-engine
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: log-monitoring-platform
+data:
+  config.yaml: |
+    # Alert Engine Configuration - OpenShift Production Deployment
+    # This configuration uses the infrastructure components set up in alert_engine_infra_setup.md
+
+    # Production OpenShift Deployment
+    server:
+      host: "0.0.0.0"          # Container bind address
+      port: 8080               # Container port (matches service definition)
+
+    redis:
+      address: "redis-cluster-access.redis-cluster.svc.cluster.local:6379"  # Redis cluster service
+      password: ""             # No password for internal cluster access  
+      cluster_mode: true       # Enable cluster mode with go-redis v9
+      # Connection timeout settings for OpenShift environment (increased for troubleshooting)
+      dial_timeout: "15s"      # Connection timeout for Redis
+      read_timeout: "10s"      # Read timeout for Redis operations
+      write_timeout: "10s"     # Write timeout for Redis operations
+
+    kafka:
+      brokers:
+        - "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"  # AMQ Streams Kafka
+      topic: "application-logs"  # Topic created in infrastructure setup
+      group_id: "alert-engine-production-group"  # Production group ID
+      # Connection timeout settings for OpenShift environment (increased for troubleshooting)
+      timeout: "30s"               # General timeout
+      net:
+        dial_timeout: "15s"        # Network dial timeout
+        read_timeout: "10s"        # Network read timeout
+        write_timeout: "10s"       # Network write timeout
+      consumer:
+        min_bytes: 1024
+        max_bytes: 1048576
+        max_wait: "10s"            # Increase from 2s to 10s for slower networks
+        start_offset: -2           # Earliest available messages for comprehensive alerting
+        # Consumer-specific timeouts
+        session_timeout: "30s"     # Consumer session timeout
+        heartbeat_interval: "3s"   # Consumer heartbeat interval
+
+    log_processing:
+      batch_size: 100          # Higher batch size for production
+      flush_interval: "5s"     # Faster processing for production
+      validation:
+        default_log_level: "INFO"
+
+    alerting:
+      default_time_window: "5m"
+      default_threshold: 5     # Higher threshold for production (reduce noise)
+
+    notifications:
+      enabled: true            # Enable all notifications - ONLY required field
+      
+      slack:
+        webhook_url: ""        # Set via SLACK_WEBHOOK_URL environment variable
+        channel: "#alerts"     # Production alerts channel
+        username: "Alert Engine (Production)"
+        icon_emoji: ":warning:"
+        timeout: "30s"
+      
+      templates:
+        alert_message: |
+          🚨 PRODUCTION Alert: {{.RuleName}}
+          Service: {{.Service}}
+          Namespace: {{.Namespace}}
+          Level: {{.Level}}
+          Count: {{.Count}} in {{.TimeWindow}}
+          Message: {{.Message}}
+        
+        slack_alert_title: "{{.SeverityEmoji}} {{.RuleName}}"
+        
+        slack_alert_fields:
+          - title: "Severity"
+            value: "{{.Severity}}"
+            short: true
+          - title: "Namespace"
+            value: "{{.Namespace}}"
+            short: true
+          - title: "Service"
+            value: "{{.Service}}"
+            short: true
+          - title: "Pod"
+            value: "{{.Pod}}"
+            short: true
+          - title: "Log Level"
+            value: "{{.Level}}"
+            short: true
+          - title: "Count"
+            value: "{{.Count}}"
+            short: true
+
+      severity:
+        emojis:
+          critical: "🔴"
+          high: "🟠"
+          medium: "🟡"
+          low: "🟢"
+          default: "⚪"
+        
+        colors:
+          critical: "#ff0000"
+          high: "#ff8000"
+          medium: "#ffff00"
+          low: "#00ff00"
+          default: "#808080"
+
+    default_rules:
+      enabled: false

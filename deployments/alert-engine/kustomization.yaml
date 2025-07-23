@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: alert-engine
+  annotations:
+    description: "Alert Engine deployment for OpenShift"
+# Namespace for all resources
+namespace: alert-engine
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/instance: alert-engine-production
+# Resources to include in the deployment
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  # - secret.yaml  # Using secretGenerator instead
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  # - networkpolicy.yaml # TODO: Resolve GO DNS resolver issue.
+# Images to be used (customize as needed)
+images:
+  - name: quay.io/mpaulgreen/alert-engine
+    newTag: v1.1.7
+# Secret generators - can be used with .env file
+secretGenerator:
+  - name: alert-engine-secrets
+    envs:
+      - .env
+      # Alternative: generate from literals if .env is not available
+      # literals:
+      #   - SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+# Patches for environment-specific customizations
+patchesStrategicMerge: []
+# JSON 6902 patches for more complex modifications
+patchesJson6902: []
+# Replicas for scaling
+replicas:
+  - name: alert-engine
+    count: 1

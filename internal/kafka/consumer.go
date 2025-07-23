@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -56,20 +57,92 @@ func NewConsumer(config ConsumerConfig, alertEngine AlertEngine) *Consumer {
 	}
 }
 
+// parseMessageField parses JSON content from the message field to extract nested fields
+func (c *Consumer) parseMessageField(logEntry *models.LogEntry) {
+	if logEntry.Message == "" {
+		return
+	}
+
+	// Try to parse the message as JSON to extract nested fields
+	var nestedLog map[string]interface{}
+	if err := json.Unmarshal([]byte(logEntry.Message), &nestedLog); err != nil {
+		// Message is not JSON, keep as-is
+		return
+	}
+
+	// Extract service field from nested JSON
+	if service, ok := nestedLog["service"].(string); ok && service != "" {
+		logEntry.Service = service
+	}
+
+	// Extract level field from nested JSON if current level is empty or default
+	if level, ok := nestedLog["level"].(string); ok && level != "" {
+		// Override level if current is empty or default
+		if logEntry.Level == "" || logEntry.Level == "INFO" || logEntry.Level == "DEFAULT" {
+			logEntry.Level = level
+		}
+	}
+
+	// Extract actual message content from nested JSON
+	if message, ok := nestedLog["message"].(string); ok && message != "" {
+		logEntry.Message = message
+	}
+
+	// Extract timestamp from nested JSON if current timestamp is zero
+	if timestampStr, ok := nestedLog["timestamp"].(string); ok && timestampStr != "" {
+		if logEntry.Timestamp.IsZero() {
+			if parsedTime, err := time.Parse(time.RFC3339Nano, timestampStr); err == nil {
+				logEntry.Timestamp = parsedTime
+			}
+		}
+	}
+}
+
 // Start begins consuming messages from Kafka
 func (c *Consumer) Start(ctx context.Context) error {
-	log.Printf("Starting Kafka consumer for topic: %s", c.config.Topic)
+	log.Printf("Starting Kafka consumer for topic: %s | Group: %s | Brokers: %v",
+		c.config.Topic, c.config.GroupID, c.config.Brokers)
+
+	startTime := time.Now()
+	var messageCount int64
+	var errorCount int64
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Kafka consumer context cancelled, shutting down")
+			uptime := time.Since(startTime)
+			errorRate := float64(0)
+			if messageCount+errorCount > 0 {
+				errorRate = float64(errorCount) / float64(messageCount+errorCount) * 100
+			}
+			log.Printf("Kafka consumer shutting down | Uptime: %v | Messages: %d | Errors: %d | Error rate: %.2f%%",
+				uptime, messageCount, errorCount, errorRate)
 			return ctx.Err()
 		default:
 			if err := c.processMessage(ctx); err != nil {
-				log.Printf("Error processing message: %v", err)
+				errorCount++
+				log.Printf("ERROR: Consumer message processing failed (error %d): %v", errorCount, err)
+
+				// Log warning if error rate gets high
+				total := messageCount + errorCount
+				if total > 10 && float64(errorCount)/float64(total) > 0.05 { // 5% error rate threshold
+					log.Printf("WARNING: Consumer error rate high: %.2f%% (%d errors out of %d total)",
+						float64(errorCount)/float64(total)*100, errorCount, total)
+				}
+
 				// Continue processing other messages
 				continue
+			}
+
+			messageCount++
+
+			// Log throughput every 100 messages
+			if messageCount%100 == 0 {
+				uptime := time.Since(startTime)
+				throughput := float64(messageCount) / uptime.Seconds()
+				errorRate := float64(errorCount) / float64(messageCount+errorCount) * 100
+				log.Printf("CONSUMER THROUGHPUT: %d messages in %v | Rate: %.2f msgs/sec | Error rate: %.2f%%",
+					messageCount, uptime, throughput, errorRate)
 			}
 		}
 	}
@@ -77,25 +150,48 @@ func (c *Consumer) Start(ctx context.Context) error {
 
 // processMessage processes a single message from Kafka
 func (c *Consumer) processMessage(ctx context.Context) error {
+	startTime := time.Now()
+
 	msg, err := c.reader.ReadMessage(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read message from Kafka: %w", err)
 	}
 
-	log.Printf("Received message from partition %d at offset %d", msg.Partition, msg.Offset)
+	// Generate correlation ID for this message
+	correlationID := fmt.Sprintf("consumer_%d_%d_%d", msg.Partition, msg.Offset, time.Now().Unix())
+
+	log.Printf("[%s] Received message from partition %d at offset %d | Size: %d bytes",
+		correlationID, msg.Partition, msg.Offset, len(msg.Value))
 
 	// Parse the log message
 	var logEntry models.LogEntry
 	if err := json.Unmarshal(msg.Value, &logEntry); err != nil {
-		log.Printf("Error unmarshaling log entry: %v, raw message: %s", err, string(msg.Value))
-		return err
+		log.Printf("[%s] ERROR: Failed to unmarshal log entry: %v | Raw message: %s",
+			correlationID, err, string(msg.Value))
+		return fmt.Errorf("unmarshaling failed: %w", err)
 	}
 
 	// Store raw message for debugging
 	logEntry.Raw = string(msg.Value)
 
+	log.Printf("[%s] INFO: Successfully parsed message | Level: %s | Service: %s | Message preview: %.100s",
+		correlationID, logEntry.Level, logEntry.Service, logEntry.Message)
+
+	// Parse JSON message field to extract nested fields (like service)
+	c.parseMessageField(&logEntry)
+
+	log.Printf("[%s] INFO: After parsing nested fields | Level: %s | Service: %s | Message preview: %.100s",
+		correlationID, logEntry.Level, logEntry.Service, logEntry.Message)
+
 	// Process the log entry through the alert engine
+	alertStartTime := time.Now()
 	c.alertEngine.EvaluateLog(logEntry)
+	alertProcessingTime := time.Since(alertStartTime)
+
+	totalProcessingTime := time.Since(startTime)
+
+	log.Printf("[%s] SUCCESS: Message processed successfully | Total time: %v | Alert evaluation time: %v",
+		correlationID, totalProcessingTime, alertProcessingTime)
 
 	return nil
 }

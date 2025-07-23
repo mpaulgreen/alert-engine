@@ -1,4 +1,4 @@
-# NLP based Alert Engine - Phase 0: Foundation & Proof of Concept [In Progress]
+# NLP based Alert Engine - Phase 0: Foundation & Proof of Concept
 ### An ALERT SYSTEM been developed using Cursor
 A Go-based alert engine for monitoring application logs in OpenShift environments with real-time alerting via Slack.
 
@@ -75,9 +75,8 @@ The Alert Engine is a cloud-native solution designed to monitor application logs
 ```
 alert-engine/
 ├── bin/                           # Binary executables
-├── cleanup/                       # Infrastructure cleanup scripts
-│   ├── cleanup_openshift_infrastructure.sh
-│   └── verify_resources_before_cleanup.sh
+
+
 ├── cmd/                          # Application entry points
 ├── configs/                      # Configuration files
 │   ├── config.yaml              # Main application configuration
@@ -179,11 +178,16 @@ alert-engine/
 │       │   └── test_logs.json
 │       └── README.md           # Models package documentation
 ├── scripts/                    # Build and test automation
+│   ├── cleanup_openshift_infrastructure.sh # OpenShift cleanup script
 │   ├── docker-compose.test.yml # Test environment setup
+│   ├── openshift_utils.sh      # Shared OpenShift utilities
 │   ├── run_integration_tests.sh # Integration test runner
 │   ├── run_kafka_integration_tests.sh # Kafka-specific test runner
 │   ├── run_unit_tests.sh       # Unit test runner
+│   ├── setup_openshift_infrastructure.sh # OpenShift setup script
 │   ├── test_strategy.md        # Testing strategy documentation
+│   ├── validate_openshift_infrastructure.sh # OpenShift validation script
+│   ├── verify_resources_before_cleanup.sh # Pre-cleanup verification
 │   └── README.md               # Scripts documentation
 ├── alert_engine_infra_setup.md # Infrastructure setup guide
 ├── go.mod                      # Go module definition
@@ -238,6 +242,44 @@ For detailed configuration instructions including environment variables, configu
 For comprehensive API documentation including endpoints, request/response formats, and usage examples, refer to:
 
 **📋 [API Documentation](internal/api/README.md)** - Complete REST API documentation with detailed endpoint specifications, authentication, and integration examples.
+
+## 🚢 Getting started on Phase 1
+
+- The Alert Engine is complete for Phase0. Run the following commands to get started
+```
+make infra-setup
+make infra-validate
+make test-all
+oc apply -f deployments/phase0/payment-error-job.yaml
+make build-and-deploy
+make logs
+make health
+```
+- set an alert rule
+```
+curl -s -X POST "http://localhost:8080/api/v1/rules" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "perfect-payment-alert",
+    "name": "Perfect Payment Alert", 
+    "description": "Exactly matches current payment logs",
+    "enabled": true,
+    "conditions": {
+      "log_level": "error",
+      "namespace": "phase0-logs",
+      "service": "payment-service",
+      "keywords": ["Payment", "failed"],
+      "threshold": 1,
+      "time_window": 60000000000,
+      "operator": "gte"
+    },
+    "actions": {
+      "slack_webhook": "https://hooks.slack.com/services/YOUR_WEBHOOK_URL",
+      "channel": "#alert-channel", # Your own channel
+      "severity": "high"
+    }
+  }'
+```
 
 
 

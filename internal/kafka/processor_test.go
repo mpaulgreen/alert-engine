@@ -372,9 +372,9 @@ func TestBatchLogProcessor_FlushBatch(t *testing.T) {
 
 		// Add messages to batch
 		testLogs := []models.LogEntry{
-			{Level: "INFO", Message: "Test 1", Service: "service1"},
-			{Level: "ERROR", Message: "Test 2", Service: "service2"},
-			{Level: "WARN", Message: "Test 3", Service: "service3"},
+			{Level: "INFO", Message: "Test 1", Service: "service1", Namespace: "test-namespace", Timestamp: time.Now()},
+			{Level: "ERROR", Message: "Test 2", Service: "service2", Namespace: "test-namespace", Timestamp: time.Now()},
+			{Level: "WARN", Message: "Test 3", Service: "service3", Namespace: "test-namespace", Timestamp: time.Now()},
 		}
 
 		batchProcessor.batchBuffer = testLogs
@@ -408,7 +408,7 @@ func TestBatchLogProcessor_FlushBatch(t *testing.T) {
 
 		// Add a message to batch
 		testLogs := []models.LogEntry{
-			{Level: "INFO", Message: "Test", Service: "service1"},
+			{Level: "INFO", Message: "Test", Service: "service1", Namespace: "test-namespace", Timestamp: time.Now()},
 		}
 		batchProcessor.batchBuffer = testLogs
 

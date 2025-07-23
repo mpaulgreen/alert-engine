@@ -1,113 +1,68 @@
-# Alert Engine Configuration - Hybrid (Production Ready + E2E Enhanced Features)
-# Combines connectivity/security from main config with enhanced templating from E2E
+# Alert Engine Configuration - Organized by Implementation Status
+# This configuration file separates currently implemented features from future considerations
 
-# Server configuration  
+# ============================================================================
+# OPENSHIFT PRODUCTION DEPLOYMENT CONFIGURATION
+# ============================================================================
+# This configuration is for deploying Alert Engine on OpenShift using the
+# infrastructure components set up in alert_engine_infra_setup.md
+
+# Production OpenShift Deployment (Use this for actual deployment)
 server:
-  address: ":8080"
-  read_timeout: "30s"
-  write_timeout: "30s" 
-  idle_timeout: "60s"
+  host: "0.0.0.0"          # Container bind address
+  port: 8080               # Container port (matches service definition)
 
-# Logging configuration
-logging:
-  level: "info"            # Changed from debug to info for production readiness
-  format: "json"           # Using JSON format from E2E for better parsing
-  output: "stdout"
-  file:
-    path: "/tmp/alert-engine-local.log"
-    max_size: "10MB"
-    max_backups: 3
-    max_age: "7d"
-    compress: true
-
-# Redis configuration (via port-forward to OpenShift)
 redis:
-  # Using port-forward to OpenShift Redis cluster
-  address: "localhost:6379"
-  password: ""
-  database: 0
-  cluster_mode: false  # Disable cluster mode for local port-forwarding
-  max_retries: 3
-  pool_size: 10
-  min_idle_conns: 5
-  dial_timeout: "10s"  # Increased for network latency
-  read_timeout: "5s"   # Increased for network latency
-  write_timeout: "5s"  # Increased for network latency
-  pool_timeout: "10s"  # Increased for network latency
-  idle_timeout: "5m"
+  address: "redis-cluster-access.redis-cluster.svc.cluster.local:6379"  # Redis cluster service
+  password: ""             # No password for internal cluster access  
+  cluster_mode: true       # CRITICAL: Enable for Redis cluster
+  # Connection timeout settings for OpenShift environment
+  dial_timeout: "15s"      # Connection timeout for Redis
+  read_timeout: "10s"      # Read timeout for Redis operations
+  write_timeout: "10s"     # Write timeout for Redis operations
 
-# Kafka configuration (via port-forward to OpenShift)
 kafka:
   brokers:
-    - "localhost:9092"  # Keeping original port for compatibility
-  topic: "application-logs"
-  group_id: "alert-engine-local-group"  # Unique group for local testing
+    - "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"  # AMQ Streams Kafka
+  topic: "application-logs"  # Topic created in infrastructure setup
+  group_id: "alert-engine-production-group"  # Production group ID
+  # Connection timeout settings for OpenShift environment - try common Go client parameter names
+  timeout: "30s"               # General timeout
+  net:
+    dial_timeout: "15s"        # Network dial timeout
+    read_timeout: "10s"        # Network read timeout
+    write_timeout: "10s"       # Network write timeout
   consumer:
-    min_bytes: 1024         # Smaller for testing
-    max_bytes: 1048576      # 1MB
-    max_wait: "2s"          # Increased for network latency
-    start_offset: -1        # Latest offset
-  producer:
-    acks: "all"             # Enhanced from E2E config
-    retries: 3              # Enhanced from E2E config
-    batch_size: 16384       # Enhanced from E2E config
-    linger_ms: 10           # Enhanced from E2E config
-    buffer_memory: 33554432 # Enhanced from E2E config
-    compression_type: "snappy" # Enhanced from E2E config
+    min_bytes: 1024
+    max_bytes: 1048576
+    max_wait: "2s"
+    start_offset: -2      # Read from earliest available message
+    # Consumer-specific timeouts
+    session_timeout: "30s"     # Consumer session timeout
+    heartbeat_interval: "3s"   # Consumer heartbeat interval
 
-# CRITICAL: Log processing configuration (Enhanced from E2E)
 log_processing:
-  enabled: true
-  batch_size: 50
-  flush_interval: "10s"
-  max_message_size: 1048576 # 1MB
+  batch_size: 100          # Higher batch size for production
+  flush_interval: "5s"     # Faster processing for production
   validation:
-    require_timestamp: true
-    require_level: true
-    require_message: true
-    require_namespace: false  # More lenient like E2E config
-    default_log_level: "INFO" # Added from E2E config
+    default_log_level: "INFO"
 
-# CRITICAL: Alert processing configuration (Enhanced from E2E)
 alerting:
-  enabled: true
-  evaluation_interval: 10s    # Added from E2E config
-  max_concurrent_evaluations: 10 # Added from E2E config
-  rule_cache_ttl: 300s       # Added from E2E config
-  alert_history_retention: 7200s # Added from E2E config
-  batch_size: 50            # Smaller for testing
-  flush_interval: "10s"     # More frequent for testing
-  max_rules: 1000
   default_time_window: "5m"
-  default_threshold: 1      # Lower threshold like E2E for better sensitivity
-  cleanup_interval: "1h"
+  default_threshold: 5     # Higher threshold for production (reduce noise)
 
-# CRITICAL: Enhanced Notification settings (From E2E config)
 notifications:
-  enabled: true
-  max_retries: 3
-  retry_delay: "5s"
-  timeout: "30s"
-  rate_limit_per_min: 60
-  batch_size: 5             # Smaller for testing
-  batch_delay: "2s"
-  enable_deduplication: true
-  deduplication_window: "5m"
-  
-  # Enhanced Slack notification configuration (From E2E)
+  enabled: true            # Enable all notifications
   slack:
-    webhook_url: ""           # Set via environment variable SLACK_WEBHOOK_URL
-    channel: "#test-mp-channel"
-    username: "Alert Engine (Hybrid)"
+    webhook_url: ""        # Set via SLACK_WEBHOOK_URL environment variable
+    channel: "#alerts"     # Production alerts channel
+    username: "Alert Engine (Production)"
     icon_emoji: ":warning:"
-    timeout: 30s
-    retry_attempts: 3
-    retry_delay: 2s
+    timeout: "30s"
   
-  # Enhanced alert message templates (From E2E)
   templates:
     alert_message: |
-      🚨 Alert: {{.RuleName}}
+      🚨 PRODUCTION Alert: {{.RuleName}}
       Service: {{.Service}}
       Namespace: {{.Namespace}}
       Level: {{.Level}}
@@ -120,7 +75,7 @@ notifications:
       - title: "Severity"
         value: "{{.Severity}}"
         short: true
-      - title: "Namespace" 
+      - title: "Namespace"
         value: "{{.Namespace}}"
         short: true
       - title: "Service"
@@ -136,7 +91,6 @@ notifications:
         value: "{{.Count}}"
         short: true
 
-  # Enhanced severity mappings (From E2E)
   severity:
     emojis:
       critical: "🔴"
@@ -152,127 +106,5 @@ notifications:
       low: "#00ff00"
       default: "#808080"
 
-# Monitoring and metrics (Enhanced with E2E features)
-monitoring:
-  enabled: true
-  metrics_port: 8081
-  health_check_interval: "30s"
-  log_level: "info"         # Changed from debug for production readiness
-  enable_pprof: true        # Enable profiling for local dev
-
-# Enhanced metrics configuration (From E2E)
-metrics:
-  enabled: true
-  path: "/metrics"
-  port: 9090
-
-# Enhanced health configuration (From E2E)
-health:
-  path: "/health"
-  timeout: 5s
-
-# Enhanced test alert rules (Hybrid of both configs)
 default_rules:
-  enabled: true
-  rules:
-    - id: "hybrid-test-error-alert"
-      name: "Hybrid Test - Application Error Alert"
-      description: "Alert on application errors (hybrid config)"
-      enabled: true
-      conditions:
-        log_level: "ERROR"
-        threshold: 1          # Using E2E's lower threshold for better sensitivity
-        time_window: "2m"     # Shorter window for testing
-        operator: "gte"       # Using E2E's operator
-      actions:
-        channel: "#test-mp-channel"
-        severity: "high"
-
-    - id: "hybrid-test-alert-engine-logs"
-      name: "Hybrid Test - Alert Engine Namespace Logs" 
-      description: "Alert on alert-engine namespace activity"
-      enabled: true
-      conditions:
-        namespace: "alert-engine"
-        log_level: "ERROR"
-        threshold: 1          # Very low threshold for testing
-        time_window: "1m"     # Short window for testing
-        operator: "gte"
-      actions:
-        channel: "#test-mp-channel"
-        severity: "medium"
-
-    - id: "hybrid-test-continuous-log-alerts"
-      name: "Hybrid Test - Continuous Log Generator Alerts"
-      description: "Alert on continuous log generator errors"
-      enabled: true
-      conditions:
-        service: "continuous-log-generator"
-        log_level: "ERROR"
-        threshold: 1          # Lower threshold from E2E
-        time_window: "3m"
-        operator: "gte"
-      actions:
-        channel: "#test-mp-channel"
-        severity: "medium"
-
-# Security configuration (Preserved from original)
-security:
-  enable_cors: true
-  cors_origins: ["*"]
-  enable_auth: false        # Disable for local development
-  api_key: ""
-
-# Performance tuning (Preserved from original)
-performance:
-  max_concurrent_rules: 50
-  rule_evaluation_timeout: "2s"
-  max_memory_usage: "256Mi"
-  gc_percentage: 100
-
-# Environment-specific overrides (Preserved from original)
-env_overrides:
-  development:
-    logging:
-      level: "debug"
-    monitoring:
-      enable_pprof: true
-    alerting:
-      default_threshold: 1  # Very sensitive for testing
-  
-  production:
-    logging:
-      level: "warn"
-    performance:
-      max_memory_usage: "1Gi"
-    kafka:
-      brokers:
-        - "alert-kafka-cluster-kafka-bootstrap.amq-streams-kafka.svc.cluster.local:9092"
-    redis:
-      address: "redis-cluster-access.redis-cluster.svc.cluster.local:6379"
-    
-  test:
-    logging:
-      level: "error"
-    kafka:
-      topic: "test-application-logs"
-    redis:
-      database: 1
-
-# E2E Testing specific configuration (Added from E2E)
-e2e:
-  test_mode: false          # Disabled in hybrid config
-  log_retention: 3600s      # 1 hour for testing
-  alert_retention: 1800s    # 30 minutes for testing
-  cleanup_interval: 300s    # 5 minutes cleanup
-
-# Consumer defaults (Enhanced from E2E)
-consumer_defaults:
-  brokers:
-    - "localhost:9092"      # Keeping original port
-  topic: "application-logs"
-  group_id: "alert-engine-local-group"
-  min_bytes: 1024
-  max_bytes: 1048576
-  max_wait: "2s"
-  start_offset: -1          # Using original setting 
+  enabled: false

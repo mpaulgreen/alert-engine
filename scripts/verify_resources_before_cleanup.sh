@@ -29,6 +29,36 @@ check_resource() {
     fi
 }
 
+# Function to check optional test application resources without error symbols
+check_optional_resource() {
+    local resource_type=$1
+    local resource_name=$2
+    local namespace=$3
+    local description=$4
+    
+    if [[ -n "$namespace" ]]; then
+        if oc get "$resource_type" "$resource_name" -n "$namespace" >/dev/null 2>&1; then
+            echo "  ✅ Found: $resource_type/$resource_name in namespace $namespace"
+            echo "    ($description is deployed)"
+            return 0
+        else
+            echo "  ℹ️  Optional: $resource_type/$resource_name in namespace $namespace"
+            echo "    ($description disabled - this is expected)"
+            return 1
+        fi
+    else
+        if oc get "$resource_type" "$resource_name" >/dev/null 2>&1; then
+            echo "  ✅ Found: $resource_type/$resource_name (cluster-wide)"
+            echo "    ($description exists)"
+            return 0
+        else
+            echo "  ℹ️  Optional: $resource_type/$resource_name (cluster-wide)"
+            echo "    ($description missing - expected if test app disabled)"
+            return 1
+        fi
+    fi
+}
+
 # Function to count resources
 count_resources() {
     local resource_type=$1
@@ -58,11 +88,18 @@ done
 echo ""
 
 echo "2. 🚨 Checking Alert Engine Resources..."
-check_resource "deployment" "continuous-log-generator" "alert-engine"
+echo "  Note: Some resources are optional and expected to be missing if test application was disabled"
+echo ""
+
+# Check required resources (always needed)
 check_resource "configmap" "redis-config" "alert-engine"
-check_resource "serviceaccount" "alert-engine-sa" "alert-engine"
-check_resource "clusterrole" "alert-engine-role" ""
-check_resource "clusterrolebinding" "alert-engine-binding" ""
+
+# Check optional test application resources
+echo "  Optional test application resources:"
+check_optional_resource "deployment" "continuous-log-generator" "alert-engine" "Test application"
+check_optional_resource "serviceaccount" "alert-engine-sa" "alert-engine" "Service account"
+check_optional_resource "clusterrole" "alert-engine-role" "" "ClusterRole"
+check_optional_resource "clusterrolebinding" "alert-engine-binding" "" "ClusterRoleBinding"
 echo ""
 
 echo "3. 🟡 Checking Kafka Resources..."
@@ -178,12 +215,19 @@ done
 
 # Check cluster-level resources
 cluster_resources=0
+test_app_resources=0
+
+# Test application resources (optional)
 if oc get clusterrole alert-engine-role >/dev/null 2>&1; then
     cluster_resources=$((cluster_resources + 1))
+    test_app_resources=$((test_app_resources + 1))
 fi
 if oc get clusterrolebinding alert-engine-binding >/dev/null 2>&1; then
     cluster_resources=$((cluster_resources + 1))
+    test_app_resources=$((test_app_resources + 1))
 fi
+
+# Required logging resources
 if oc get clusterrolebinding log-collector-application-logs >/dev/null 2>&1; then
     cluster_resources=$((cluster_resources + 1))
 fi
@@ -192,12 +236,17 @@ if oc get clusterrolebinding log-collector-write-logs >/dev/null 2>&1; then
 fi
 
 echo "Cluster-level resources: $cluster_resources"
+echo "  - Test application resources: $test_app_resources (optional)"
+echo "  - Required logging resources: $((cluster_resources - test_app_resources))"
 echo "Total resources to cleanup: $((total_resources + cluster_resources))"
 
 echo ""
 if [[ "$total_resources" -gt 0 ]] || [[ "$cluster_resources" -gt 0 ]]; then
     echo "🔄 Resources found that need cleanup. You can proceed with the cleanup script."
     echo "   Run: ./cleanup_openshift_infrastructure.sh"
+    if [[ "$test_app_resources" -eq 0 ]]; then
+        echo "   Note: No test application resources found (expected if disabled)"
+    fi
 else
     echo "🎉 No Alert Engine resources found. The cluster appears to be clean."
 fi
