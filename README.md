@@ -75,16 +75,27 @@ The Alert Engine is a cloud-native solution designed to monitor application logs
 ```
 alert-engine/
 ├── bin/                           # Binary executables
-
-
 ├── cmd/                          # Application entry points
 ├── configs/                      # Configuration files
 │   ├── config.yaml              # Main application configuration
 │   └── README.md                # Configuration documentation
 ├── deployments/                 # Deployment manifests
-│   └── openshift/
-│       ├── deployment.yaml      # OpenShift deployment manifest
-│       └── service.yaml         # OpenShift service manifest
+│   ├── alert-engine/           # Alert Engine OpenShift deployment
+│   │   ├── BUILD_SUMMARY.md    # Build summary documentation
+│   │   ├── build.sh            # Build script
+│   │   ├── configmap.yaml      # ConfigMap manifest
+│   │   ├── deployment.yaml     # Deployment manifest
+│   │   ├── Dockerfile          # Container image definition
+│   │   ├── kustomization.yaml  # Kustomize configuration
+│   │   ├── namespace.yaml      # Namespace manifest
+│   │   ├── networkpolicy.yaml  # Network policy manifest
+│   │   ├── README.md           # Deployment documentation
+│   │   ├── secret.yaml         # Secret manifest
+│   │   ├── service.yaml        # Service manifest
+│   │   ├── serviceaccount.yaml # Service account manifest
+│   │   └── update-image.sh     # Image update script
+│   └── phase0/                 # Phase 0 deployment manifests
+│       └── payment-error-job.yaml # Payment error test job
 ├── inputs/                      # Project documentation and analysis
 │   ├── coverage_analysis.md     # Test coverage analysis
 │   ├── Log Monitoring PRD.pdf   # Product requirements document
@@ -181,6 +192,7 @@ alert-engine/
 │   ├── cleanup_openshift_infrastructure.sh # OpenShift cleanup script
 │   ├── docker-compose.test.yml # Test environment setup
 │   ├── openshift_utils.sh      # Shared OpenShift utilities
+│   ├── prompt.md               # Development prompts and guidance
 │   ├── run_integration_tests.sh # Integration test runner
 │   ├── run_kafka_integration_tests.sh # Kafka-specific test runner
 │   ├── run_unit_tests.sh       # Unit test runner
@@ -193,6 +205,7 @@ alert-engine/
 ├── go.mod                      # Go module definition
 ├── go.sum                      # Go module checksums
 ├── main                        # Compiled binary
+├── Makefile                    # Build automation
 └── README.md                   # This file
 ```
 
