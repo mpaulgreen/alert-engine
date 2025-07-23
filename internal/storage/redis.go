@@ -306,13 +306,35 @@ func (r *RedisStore) GetAlert(alertID string) (*models.Alert, error) {
 func (r *RedisStore) GetRecentAlerts(limit int) ([]models.Alert, error) {
 	var allKeys []string
 
-	// Use SCAN instead of Keys for cluster compatibility
-	iter := r.client.Scan(r.ctx, 0, "alert:*", 0).Iterator()
-	for iter.Next(r.ctx) {
-		allKeys = append(allKeys, iter.Val())
-	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan alert keys: %w", err)
+	// Check if we're using cluster client
+	if clusterClient, ok := r.client.(*redis.ClusterClient); ok {
+		// For cluster mode: scan each node explicitly
+		err := clusterClient.ForEachShard(r.ctx, func(ctx context.Context, shard *redis.Client) error {
+			iter := shard.Scan(ctx, 0, "alert:*", 0).Iterator()
+			for iter.Next(ctx) {
+				allKeys = append(allKeys, iter.Val())
+			}
+			return iter.Err()
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan alert keys from cluster: %w", err)
+		}
+	} else {
+		// For single-node mode: use proper cursor-based scanning
+		cursor := uint64(0)
+		for {
+			keys, nextCursor, err := r.client.Scan(r.ctx, cursor, "alert:*", 100).Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan alert keys: %w", err)
+			}
+
+			allKeys = append(allKeys, keys...)
+
+			if nextCursor == 0 {
+				break // Scan complete
+			}
+			cursor = nextCursor
+		}
 	}
 
 	alerts := make([]models.Alert, 0)
@@ -363,18 +385,41 @@ func (r *RedisStore) GetInfo() (map[string]string, error) {
 
 // CleanupExpiredData removes expired data from Redis - CLUSTER-COMPATIBLE VERSION
 func (r *RedisStore) CleanupExpiredData() error {
-	// Get all counter keys using SCAN for cluster compatibility
-	var counterKeys []string
-	iter := r.client.Scan(r.ctx, 0, "counter:*", 0).Iterator()
-	for iter.Next(r.ctx) {
-		counterKeys = append(counterKeys, iter.Val())
-	}
-	if err := iter.Err(); err != nil {
-		return fmt.Errorf("failed to scan counter keys: %w", err)
+	var allCounterKeys []string
+
+	// Check if we're using cluster client
+	if clusterClient, ok := r.client.(*redis.ClusterClient); ok {
+		// For cluster mode: scan each node explicitly
+		err := clusterClient.ForEachShard(r.ctx, func(ctx context.Context, shard *redis.Client) error {
+			iter := shard.Scan(ctx, 0, "counter:*", 0).Iterator()
+			for iter.Next(ctx) {
+				allCounterKeys = append(allCounterKeys, iter.Val())
+			}
+			return iter.Err()
+		})
+		if err != nil {
+			return fmt.Errorf("failed to scan counter keys from cluster: %w", err)
+		}
+	} else {
+		// For single-node mode: use proper cursor-based scanning
+		cursor := uint64(0)
+		for {
+			keys, nextCursor, err := r.client.Scan(r.ctx, cursor, "counter:*", 100).Result()
+			if err != nil {
+				return fmt.Errorf("failed to scan counter keys: %w", err)
+			}
+
+			allCounterKeys = append(allCounterKeys, keys...)
+
+			if nextCursor == 0 {
+				break // Scan complete
+			}
+			cursor = nextCursor
+		}
 	}
 
 	// Remove expired counters
-	for _, key := range counterKeys {
+	for _, key := range allCounterKeys {
 		ttl, err := r.client.TTL(r.ctx, key).Result()
 		if err != nil {
 			continue
@@ -392,7 +437,7 @@ func (r *RedisStore) CleanupExpiredData() error {
 func (r *RedisStore) GetMetrics() (map[string]interface{}, error) {
 	metrics := make(map[string]interface{})
 
-	// Count different types of keys using SCAN for cluster compatibility
+	// Count different types of keys using cluster-compatible SCAN
 	patterns := map[string]string{
 		"alert_rules":    "alert_rule:*",
 		"counters":       "counter:*",
@@ -401,12 +446,44 @@ func (r *RedisStore) GetMetrics() (map[string]interface{}, error) {
 	}
 
 	for metricName, pattern := range patterns {
-		var keys []string
-		iter := r.client.Scan(r.ctx, 0, pattern, 0).Iterator()
-		for iter.Next(r.ctx) {
-			keys = append(keys, iter.Val())
+		var allKeys []string
+
+		// Check if we're using cluster client
+		if clusterClient, ok := r.client.(*redis.ClusterClient); ok {
+			// For cluster mode: scan each node explicitly
+			err := clusterClient.ForEachShard(r.ctx, func(ctx context.Context, shard *redis.Client) error {
+				iter := shard.Scan(ctx, 0, pattern, 0).Iterator()
+				for iter.Next(ctx) {
+					allKeys = append(allKeys, iter.Val())
+				}
+				return iter.Err()
+			})
+			if err != nil {
+				// Log error but continue with other patterns
+				metrics[metricName] = 0
+				continue
+			}
+		} else {
+			// For single-node mode: use proper cursor-based scanning
+			cursor := uint64(0)
+			for {
+				keys, nextCursor, err := r.client.Scan(r.ctx, cursor, pattern, 100).Result()
+				if err != nil {
+					// Log error but continue with other patterns
+					metrics[metricName] = 0
+					break
+				}
+
+				allKeys = append(allKeys, keys...)
+
+				if nextCursor == 0 {
+					break // Scan complete
+				}
+				cursor = nextCursor
+			}
 		}
-		metrics[metricName] = len(keys)
+
+		metrics[metricName] = len(allKeys)
 	}
 
 	// Get memory usage
@@ -457,13 +534,35 @@ func (r *RedisStore) BulkSaveAlertRules(rules []models.AlertRule) error {
 func (r *RedisStore) Search(pattern string) ([]string, error) {
 	var allKeys []string
 
-	// Use SCAN instead of Keys for cluster compatibility
-	iter := r.client.Scan(r.ctx, 0, pattern, 0).Iterator()
-	for iter.Next(r.ctx) {
-		allKeys = append(allKeys, iter.Val())
-	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan keys with pattern %s: %w", pattern, err)
+	// Check if we're using cluster client
+	if clusterClient, ok := r.client.(*redis.ClusterClient); ok {
+		// For cluster mode: scan each node explicitly
+		err := clusterClient.ForEachShard(r.ctx, func(ctx context.Context, shard *redis.Client) error {
+			iter := shard.Scan(ctx, 0, pattern, 0).Iterator()
+			for iter.Next(ctx) {
+				allKeys = append(allKeys, iter.Val())
+			}
+			return iter.Err()
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan keys with pattern %s from cluster: %w", pattern, err)
+		}
+	} else {
+		// For single-node mode: use proper cursor-based scanning
+		cursor := uint64(0)
+		for {
+			keys, nextCursor, err := r.client.Scan(r.ctx, cursor, pattern, 100).Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan keys with pattern %s: %w", pattern, err)
+			}
+
+			allKeys = append(allKeys, keys...)
+
+			if nextCursor == 0 {
+				break // Scan complete
+			}
+			cursor = nextCursor
+		}
 	}
 
 	return allKeys, nil
